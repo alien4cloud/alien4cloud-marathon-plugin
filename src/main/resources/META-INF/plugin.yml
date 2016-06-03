@@ -1,0 +1,17 @@
+id: alien4cloud-marathon-plugin
+name: POC marathon plugin for alien
+version: ${project.version}
+description: >
+  Plugin that contains a paas provider capable of deploying application onto marathon.
+configuration_class: alien4cloud.plugin.marathon.PluginConfiguration
+component_descriptors:
+  - bean_name: marathon-orchestrator-factory
+    name: Marathon Orchestrator Factory
+    description: >
+      Orchestrator Factory that instanciate the marathon orchestrator.
+  - bean_name: marathon-location-matcher
+    name: Mock location matcher for marathon
+    description: >
+      A location matcher that matches a topology against locations based on some properties.
+      It'll only matches locations managed by orchestrators from the marathon-orchestrator-factory
+
