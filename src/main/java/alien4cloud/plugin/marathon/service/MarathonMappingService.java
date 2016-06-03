@@ -2,21 +2,23 @@ package alien4cloud.plugin.marathon.service;
 
 import alien4cloud.model.components.ImplementationArtifact;
 import alien4cloud.model.components.ScalarPropertyValue;
+import alien4cloud.model.topology.Capability;
 import alien4cloud.paas.exception.NotSupportedException;
 import alien4cloud.paas.model.PaaSNodeTemplate;
 import alien4cloud.paas.model.PaaSTopologyDeploymentContext;
+import alien4cloud.plugin.marathon.config.MarathonConfig;
+import com.google.common.collect.Lists;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
-import mesosphere.marathon.client.model.v2.App;
-import mesosphere.marathon.client.model.v2.Container;
-import mesosphere.marathon.client.model.v2.Docker;
-import mesosphere.marathon.client.model.v2.Group;
+import mesosphere.marathon.client.model.v2.*;
 import org.apache.commons.lang.NotImplementedException;
 import org.springframework.http.converter.json.GsonBuilderUtils;
 import org.springframework.stereotype.Service;
 
 import java.io.FileWriter;
 import java.io.IOException;
+import java.util.Iterator;
+import java.util.Map;
 import java.util.regex.Pattern;
 
 /**
@@ -31,11 +33,21 @@ public class MarathonMappingService {
      * @return
      */
     public Group buildGroupDefinition(PaaSTopologyDeploymentContext paaSTopologyDeploymentContext) {
-        Group groupDef = new Group();
+        // Setup parent group
+        Group parentGrp = new Group();
+        // Group id == pass topology deployment id
+        parentGrp.setId(paaSTopologyDeploymentContext.getDeploymentPaaSId());
+        parentGrp.setApps(Lists.<App>newArrayList());
+        parentGrp.setDependencies(Lists.<String>newArrayList());
+        parentGrp.setVersion(paaSTopologyDeploymentContext.getDeploymentTopology().getVersionId());
+
+        // Docker containers are non-natives
+        for (PaaSNodeTemplate paaSNodeTemplate : paaSTopologyDeploymentContext.getPaaSTopology().getNonNatives()) {
+            // app definition
+        }
 
 
-
-        return groupDef;
+        return parentGrp;
     }
 
     /**
@@ -43,13 +55,16 @@ public class MarathonMappingService {
      * @param paaSTopologyDeploymentContext
      * @return
      */
-    public App buildAppDefinition(PaaSTopologyDeploymentContext paaSTopologyDeploymentContext) {
+    public App buildAppDefinition(PaaSTopologyDeploymentContext paaSTopologyDeploymentContext, MarathonConfig config) {
         // Asumes there is only one App
         PaaSNodeTemplate nodeTemplate = paaSTopologyDeploymentContext.getPaaSTopology().getNonNatives().get(0);
 
+        // Generate app structure
         App appDef = new App();
         Container container = new Container();
         Docker docker = new Docker();
+        container.setDocker(docker);
+        appDef.setContainer(container);
 
         // Retrieve docker image
         final ImplementationArtifact implementationArtifact = nodeTemplate.getInterfaces()
@@ -61,11 +76,22 @@ public class MarathonMappingService {
             else throw new NotSupportedException("Create artifact should be in the form <hub/repo/image:version.dockerimg>");
         } else throw new NotImplementedException("Create artifact should contain the image");
 
-        // Docker conf
-        docker.setNetwork("HOST");
-        container.setDocker(docker);
-        container.setType("DOCKER");
-        appDef.setContainer(container);
+        // todo : YAY java 8 !
+        nodeTemplate.getTemplate().getCapabilities().forEach((name, capability) -> {
+            if (capability.getType().contains("capabilities.endpoint")) { // FIXME : better check of capability types...
+
+                // Retrieve port mapping for the capability - note : if no port is specified then let marathon decide.
+                Port port = capability.getProperties().containsKey("port") ?
+                        new Port(Integer.valueOf(((ScalarPropertyValue) capability.getProperties().get("port")).getValue())) :
+                        new Port(0);
+
+                if (capability.getProperties().containsKey("docker_port_mapping")) {
+                    docker.setNetwork("BRIDGE");
+                    port.setHostPort(Integer.valueOf(((ScalarPropertyValue) capability.getProperties().get("docker_port_mapping")).getValue()));
+                } else docker.setNetwork("HOST");
+            }
+        });
+
         appDef.setInstances(1);
         appDef.setId("/" + nodeTemplate.getId().toLowerCase());
 
