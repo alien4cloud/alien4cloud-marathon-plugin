@@ -13,8 +13,10 @@ import lombok.Setter;
 @Setter
 @NoArgsConstructor
 @AllArgsConstructor
-@FormProperties({ "marathonURL" })
+@FormProperties({ "marathonURL", "mesosDNS" })
 public class MarathonConfig {
 
     private String marathonURL;
+
+    private String mesosDNS;
 }

@@ -32,6 +32,8 @@ import java.util.Map;
 @Component
 public class MarathonOrchestrator implements IOrchestratorPlugin<MarathonConfig> {
 
+    private MarathonConfig config;
+
     @Autowired
     private MarathonMappingService marathonMappingService;
 
@@ -55,7 +57,8 @@ public class MarathonOrchestrator implements IOrchestratorPlugin<MarathonConfig>
 
     @Override
     public void setConfiguration(MarathonConfig marathonConfig) throws PluginConfigurationException {
-        marathonClient = MarathonClient.getInstance(marathonConfig.getMarathonURL());
+        this.config = marathonConfig;
+        marathonClient = MarathonClient.getInstance(config.getMarathonURL());
     }
 
     @Override
@@ -65,7 +68,7 @@ public class MarathonOrchestrator implements IOrchestratorPlugin<MarathonConfig>
 
     @Override
     public void deploy(PaaSTopologyDeploymentContext paaSTopologyDeploymentContext, IPaaSCallback<?> iPaaSCallback) {
-        App appDef = marathonMappingService.buildAppDefinition(paaSTopologyDeploymentContext);
+        App appDef = marathonMappingService.buildAppDefinition(paaSTopologyDeploymentContext, config);
         try {
             appDef = marathonClient.createApp(appDef);
             deployed = true;
