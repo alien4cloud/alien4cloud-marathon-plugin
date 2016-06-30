@@ -201,13 +201,42 @@ public class MarathonMappingService {
             });
         }
 
-        // Resources
-        final ScalarPropertyValue cpu_share = (ScalarPropertyValue) nodeTemplate.getTemplate().getProperties().get("cpu_share");
-        appDef.setCpus(Double.valueOf(cpu_share.getValue()));
+        // Properties
+        /* Env variables ==> Map of String values */
+        if (nodeTemplateProperties.get("docker_env_vars") != null) {
+            Map<String, String> envVars = Maps.newHashMap();
+            ((ComplexPropertyValue) nodeTemplateProperties.get("docker_env_vars")).getValue().forEach((var, val) -> {
+                // Mapped property expected as String
+                // Deal with the property as a environment variable - TODO: check string conversion
+                envVars.put(var, String.valueOf(val)); // TODO Replace by MapUtil || JsonUtil
+            });
+            appDef.getEnv().putAll(envVars);
+        }
 
-        final ScalarPropertyValue mem_share = (ScalarPropertyValue) nodeTemplate.getTemplate().getProperties().get("mem_share");
-        appDef.setMem(Double.valueOf(mem_share.getValue()));
+        /* Docker options ==> Map of String values */
+        if (nodeTemplateProperties.get("docker_options") != null) {
+            Map<String, String> dockerOpts = Maps.newHashMap();
+            ((ComplexPropertyValue) nodeTemplateProperties.get("docker_options")).getValue().forEach((var, val) -> {
+                docker.getParameters().add(new Parameter(var, String.valueOf(val)));
+            });
+        }
+
+        /* Docker run args */
+        if (nodeTemplateProperties.get("docker_run_args") != null) {
+            if (appDef.getArgs() == null) {
+                appDef.setArgs(Lists.newArrayList());
+            }
+            List<String> dockerArgs = ((ListPropertyValue) nodeTemplateProperties.get("docker_run_args")).getValue().
+                    stream().map(String::valueOf).collect(Collectors.toList());
+            appDef.getArgs().addAll(dockerArgs); //FIXME : args order ?
+        }
+
+        /* Docker command */
+        if (nodeTemplateProperties.get("docker_run_cmd") != null) {
+            appDef.setCmd(((ScalarPropertyValue) nodeTemplateProperties.get("docker_run_cmd")).getValue());
+        }
 
         return appDef;
     }
+
 }
