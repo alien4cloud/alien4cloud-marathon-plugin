@@ -58,8 +58,11 @@ public class MarathonMappingService {
     }
 
     /**
-     * Parse an alien topology into a Marathon App Definition
+     * Map an alien topology into a Marathon App Definition.
      *
+     * @param paaSNodeTemplate the node template to map
+     * @param paaSTopology the topology the node belongs to
+     * @return a Marathon App definition
      */
     public App buildAppDefinition(PaaSNodeTemplate paaSNodeTemplate, PaaSTopology paaSTopology) {
 
@@ -108,36 +111,10 @@ public class MarathonMappingService {
                 if (val instanceof FunctionPropertyValue
                         && "get_property".equals(((FunctionPropertyValue) val).getFunction())
                         && "REQ_TARGET".equals(((FunctionPropertyValue) val).getTemplateName())) {
-
-                    // Search for the requirement's target by filter the relationships' templates of this node.
-                    // If a target is found, then lookup for the given property name in its capabilities.
-                    // The orchestrator replaces the PORT and IP_ADDRESS by the target's service port and the load balancer hostname respectively.
-                    String requirementName = ((FunctionPropertyValue) val).getCapabilityOrRequirementName();
-                    String propertyName = ((FunctionPropertyValue) val).getElementNameToFetch();
-
-                    value = paaSNodeTemplate.getRelationshipTemplates().stream()
-                            .filter(item -> paaSNodeTemplate.getId().equals(item.getSource()) && requirementName.equals(item.getTemplate().getRequirementName()))
-                            .findFirst() // Find the first relationship template which fulfills the given requirement, for this source
-                            .map(relationshipTemplate -> {
-                                String target = relationshipTemplate.getTemplate().getTarget();
-                                String targetedCapability = relationshipTemplate.getTemplate().getTargetedCapabilityName();
-
-                                // Special marathon case use service ports if the "Port" property is required.
-                                if (relationshipTemplate.instanceOf("tosca.relationships.ConnectsTo")) { // - TODO/FIXME : check target derived_from marathon
-                                    if ("port".equalsIgnoreCase(propertyName))
-                                        // TODO: Retrieve service port if exists - if not, get capability value
-                                        return String.valueOf(mapPortEndpoints.getOrDefault(target.concat(targetedCapability), 0));
-                                    else if ("ip_address".equalsIgnoreCase(propertyName))
-                                        // Return marathon-lb hostname
-                                        return "marathon-lb.marathon.mesos";
-                                }
-                                // Nominal case : get the requirement's targeted capability property.
-                                // TODO: Add the REQ_TARGET keyword in the evaluateGetProperty function soo this is evaluated at parsing
-                                return FunctionEvaluator.evaluateGetPropertyFunction((FunctionPropertyValue) val, paaSNodeTemplate, paaSTopology.getAllNodes());
-                            }).orElse("");
-                } else if (val instanceof ScalarPropertyValue) {
+                    // Get property of a requirement's targeted capability
+                    value = getPropertyFromReqTarget(paaSNodeTemplate, paaSTopology, (FunctionPropertyValue) val);
+                } else if (val instanceof ScalarPropertyValue)
                     value = ((ScalarPropertyValue) val).getValue();
-                }
 
                 if (key.startsWith("ENV_")) {
                     // Input as environment variable within the container
@@ -168,6 +145,8 @@ public class MarathonMappingService {
                 mapPortEndpoints.put(paaSNodeTemplate.getId().concat(name), servicePort);
 
                 // FIXME: set haproxy_group only if necessary
+                // The HAPROXY_GROUP label indicates which load balancer group this application should register to.
+                // For now this default to internal.
                 appDef.addLabel("HAPROXY_GROUP", "internal");
 
                 if (capability.getProperties().containsKey("docker_bridge_port_mapping")) {
@@ -181,10 +160,9 @@ public class MarathonMappingService {
                 docker.getPortMappings().add(port);
             }
         });
-        // une seule map avec key: <node_name><capability_name>
 
-
-        // Get connectsTo relationships - only those are supported. I
+        // Get connectsTo relationships - only those are supported.
+        // Each implies the need to create a service port for the targeted capability.
         // TODO : Get Requirement target properties - WARN: relationships can be null (apparently).
         if (nodeTemplate.getRelationships() != null) {
             nodeTemplate.getRelationships().forEach((k, v) -> {
@@ -202,18 +180,14 @@ public class MarathonMappingService {
         // Properties
         /* Env variables ==> Map of String values */
         if (nodeTemplateProperties.get("docker_env_vars") != null) {
-            Map<String, String> envVars = Maps.newHashMap();
             ((ComplexPropertyValue) nodeTemplateProperties.get("docker_env_vars")).getValue().forEach((var, val) -> {
-                // Mapped property expected as String
-                // Deal with the property as a environment variable - TODO: check string conversion
-                envVars.put(var, String.valueOf(val)); // TODO Replace by MapUtil || JsonUtil
+                // Mapped property expected as String. Deal with the property as a environment variable
+                appDef.getEnv().put(var, String.valueOf(val)); // TODO Replace by MapUtil || JsonUtil
             });
-            appDef.getEnv().putAll(envVars);
         }
 
         /* Docker options ==> Map of String values */
         if (nodeTemplateProperties.get("docker_options") != null) {
-            Map<String, String> dockerOpts = Maps.newHashMap();
             ((ComplexPropertyValue) nodeTemplateProperties.get("docker_options")).getValue().forEach((var, val) -> {
                 docker.getParameters().add(new Parameter(var, String.valueOf(val)));
             });
@@ -224,9 +198,10 @@ public class MarathonMappingService {
             if (appDef.getArgs() == null) {
                 appDef.setArgs(Lists.newArrayList());
             }
-            List<String> dockerArgs = ((ListPropertyValue) nodeTemplateProperties.get("docker_run_args")).getValue().
-                    stream().map(String::valueOf).collect(Collectors.toList());
-            appDef.getArgs().addAll(dockerArgs); //FIXME : args order ?
+            appDef.getArgs().addAll(
+                    ((ListPropertyValue) nodeTemplateProperties.get("docker_run_args")).getValue().
+                    stream().map(String::valueOf).collect(Collectors.toList())
+            );
         }
 
         /* Docker command */
@@ -235,6 +210,44 @@ public class MarathonMappingService {
         }
 
         return appDef;
+    }
+
+    /**
+     * Search for a property of a capability being required as a target of a relationship.
+     * @param paaSNodeTemplate The source node of the relationships, wich defines the requirement.
+     * @param paaSTopology the topology the node belongs to.
+     * @param params the function parameters, e.g. the requirement name & property name to lookup.
+     * @return a String representing the property value.
+     */
+    private String getPropertyFromReqTarget(PaaSNodeTemplate paaSNodeTemplate, PaaSTopology paaSTopology, FunctionPropertyValue params) {
+        // Search for the requirement's target by filter the relationships' templates of this node.
+        // If a target is found, then lookup for the given property name in its capabilities.
+        // The orchestrator replaces the PORT and IP_ADDRESS by the target's service port and the load balancer hostname respectively.
+
+        String requirementName = params.getCapabilityOrRequirementName();
+        String propertyName = params.getElementNameToFetch();
+
+        return paaSNodeTemplate.getRelationshipTemplates().stream()
+            .filter(item -> paaSNodeTemplate.getId().equals(item.getSource()) && requirementName.equals(item.getTemplate().getRequirementName()))
+            .findFirst() // Find the first relationship template which fulfills the given requirement, for this source
+            .map(relationshipTemplate -> {
+                // Special marathon case use service ports if the "Port" property is required.
+                if (relationshipTemplate.instanceOf("tosca.relationships.ConnectsTo")) { // - TODO/FIXME : check target derived_from marathon
+                    if ("port".equalsIgnoreCase(propertyName))
+                        // TODO: Retrieve service port if exists - if not, get capability value
+                        return String.valueOf( // Service ports are mapped using the targetName + capabilityName
+                                mapPortEndpoints.getOrDefault(
+                                        relationshipTemplate.getTemplate().getTarget()
+                                            + relationshipTemplate.getTemplate().getTargetedCapabilityName()
+                                        , 0));
+                    else if ("ip_address".equalsIgnoreCase(propertyName))
+                        // Return marathon-lb hostname
+                        return "marathon-lb.marathon.mesos";
+                }
+                // Nominal case : get the requirement's targeted capability property.
+                // TODO: Add the REQ_TARGET keyword in the evaluateGetProperty function soo this is evaluated at parsing
+                return FunctionEvaluator.evaluateGetPropertyFunction(params, paaSNodeTemplate, paaSTopology.getAllNodes());
+            }).orElse("");
     }
 
 }
