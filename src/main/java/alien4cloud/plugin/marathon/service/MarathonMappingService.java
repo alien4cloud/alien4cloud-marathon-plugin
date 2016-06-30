@@ -106,11 +106,58 @@ public class MarathonMappingService {
             else throw new NotSupportedException("Create artifact should be in the form <hub/repo/image:version.dockerimg>");
         } else throw new NotImplementedException("Create artifact should contain the image");
 
-        // Handle capabilities
-        Map<String, Integer> endpoints = Maps.newHashMap();
-        // todo : YAY java 8 !
-        nodeTemplate.getTemplate().getCapabilities().forEach((name, capability) -> {
-            if (capability.getType().contains("capabilities.endpoint")) { // FIX ME : better check of capability types...
+        // Inputs from the create interface
+        /* Prefix-based mapping : ENV_ => Env var, OPT_ => docker option, ARG_ => Docker run args */
+        if (createOperation.getInputParameters() != null) {
+            createOperation.getInputParameters().forEach((key, val) -> {
+                // Input as environment variable within the container - TODO check length > prefix_
+                String value = "";
+                if (val instanceof FunctionPropertyValue
+                        && "get_property".equals(((FunctionPropertyValue) val).getFunction())
+                        && "REQ_TARGET".equals(((FunctionPropertyValue) val).getTemplateName())) {
+                    String requirementName = ((FunctionPropertyValue) val).getCapabilityOrRequirementName();
+                    String propertyName = ((FunctionPropertyValue) val).getElementNameToFetch();
+
+                    // Scout for relationship
+                    value = paaSNodeTemplate.getRelationshipTemplates().stream()
+                            .filter(item -> paaSNodeTemplate.getId().equals(item.getSource()) && requirementName.equals(item.getTemplate().getRequirementName()))
+                            .findFirst()
+                            .map(relationshipTemplate -> {
+                                String target = relationshipTemplate.getTemplate().getTarget();
+                                String targetedCapability = relationshipTemplate.getTemplate().getTargetedCapabilityName();
+
+                                // Special marathon case use service ports if the "Port" property is required. - TODO : check derived_from marathon ?
+                                if (relationshipTemplate.instanceOf("tosca.relationships.ConnectsTo")) {
+                                    if ("port".equalsIgnoreCase(propertyName)) {
+                                        // TODO: Retrieve service port if exists - if not, get capability value
+                                        return String.valueOf(mapPortEndpoints.getOrDefault(target.concat(targetedCapability), 0));
+                                    } else if ("ip_address".equalsIgnoreCase(propertyName)) {
+                                        // Return marathon-lb hostname
+                                        return "marathon-lb.marathon.mesos";
+                                    }
+                                    // TODO else case
+                                }
+                                // TODO: Add the REQ_TARGET keyword in the evaluateGetProperty function
+                                return FunctionEvaluator.evaluateGetPropertyFunction((FunctionPropertyValue) val, paaSNodeTemplate, paaSTopology.getAllNodes());
+                            }).orElse("");
+                } else if (val instanceof ScalarPropertyValue) {
+                    value = ((ScalarPropertyValue) val).getValue();
+                }
+
+                if (key.startsWith("ENV_")) {
+                    appDef.getEnv().put(key.replaceFirst("^ENV_", ""), value);
+                } else if (key.startsWith("OPT_")) {
+                    // TODO
+                } else if (key.startsWith("ARG_")) {
+                    // TODO
+                } else
+                    log.warn("Unrecognized prefix for input : <" + key + ">");
+            });
+        }
+
+        // Turn endpoints capabilities into a portMapping definition - Attribute a service point
+        nodeTemplate.getCapabilities().forEach((name, capability) -> {
+            if (capability.getType().contains("capabilities.endpoint")) { // FIXME : better check of capability types...
                 // Retrieve port mapping for the capability - note : if no port is specified then let marathon decide.
                 Port port = capability.getProperties().get("port") != null ?
                         new Port(Integer.valueOf(((ScalarPropertyValue) capability.getProperties().get("port")).getValue())) :
