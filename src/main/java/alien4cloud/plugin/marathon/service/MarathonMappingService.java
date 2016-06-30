@@ -1,34 +1,37 @@
 package alien4cloud.plugin.marathon.service;
 
-import alien4cloud.model.components.ImplementationArtifact;
-import alien4cloud.model.components.ScalarPropertyValue;
-import alien4cloud.model.topology.Capability;
-import alien4cloud.model.topology.RelationshipTemplate;
-import alien4cloud.paas.exception.NotSupportedException;
-import alien4cloud.paas.model.PaaSNodeTemplate;
-import alien4cloud.paas.model.PaaSTopologyDeploymentContext;
-import alien4cloud.plugin.marathon.config.MarathonConfig;
-import com.google.common.collect.Interner;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
-import com.google.gson.Gson;
-import com.google.gson.GsonBuilder;
-import mesosphere.marathon.client.model.v2.*;
-import org.apache.commons.collections.map.HashedMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.regex.Pattern;
+import java.util.stream.Collectors;
+
 import org.apache.commons.lang.NotImplementedException;
-import org.springframework.http.converter.json.GsonBuilderUtils;
 import org.springframework.stereotype.Service;
 
-import java.io.FileWriter;
-import java.io.IOException;
-import java.util.Iterator;
-import java.util.Map;
-import java.util.regex.Pattern;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
+
+import alien4cloud.model.components.*;
+import alien4cloud.model.topology.NodeTemplate;
+import alien4cloud.model.topology.RelationshipTemplate;
+import alien4cloud.paas.exception.NotSupportedException;
+import alien4cloud.paas.function.FunctionEvaluator;
+import alien4cloud.paas.model.PaaSNodeTemplate;
+import alien4cloud.paas.model.PaaSRelationshipTemplate;
+import alien4cloud.paas.model.PaaSTopology;
+import alien4cloud.paas.model.PaaSTopologyDeploymentContext;
+import lombok.extern.log4j.Log4j;
+import mesosphere.marathon.client.model.v2.*;
 
 /**
  * @author Adrian Fraisse
  */
 @Service
+@Log4j
 public class MarathonMappingService {
 
     private Map<String, Map<String, Integer>> mapPortEndpoints = Maps.newHashMap();
