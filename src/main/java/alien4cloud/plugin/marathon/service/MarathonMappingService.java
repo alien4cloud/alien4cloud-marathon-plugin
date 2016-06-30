@@ -1,9 +1,7 @@
 package alien4cloud.plugin.marathon.service;
 
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -13,15 +11,12 @@ import org.springframework.stereotype.Service;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import com.google.common.collect.Sets;
 
 import alien4cloud.model.components.*;
 import alien4cloud.model.topology.NodeTemplate;
-import alien4cloud.model.topology.RelationshipTemplate;
 import alien4cloud.paas.exception.NotSupportedException;
 import alien4cloud.paas.function.FunctionEvaluator;
 import alien4cloud.paas.model.PaaSNodeTemplate;
-import alien4cloud.paas.model.PaaSRelationshipTemplate;
 import alien4cloud.paas.model.PaaSTopology;
 import alien4cloud.paas.model.PaaSTopologyDeploymentContext;
 import lombok.extern.log4j.Log4j;
@@ -41,8 +36,9 @@ public class MarathonMappingService {
 
     /**
      * Parse an Alien deployment context into a Marathon group definition.
-     * @param paaSTopologyDeploymentContext
-     * @return
+     *
+     * @param paaSTopologyDeploymentContext the deployment to process
+     * @return A Marathon Group definition
      */
     public Group buildGroupDefinition(PaaSTopologyDeploymentContext paaSTopologyDeploymentContext) {
         // Setup parent group
@@ -50,7 +46,6 @@ public class MarathonMappingService {
         // Group id == pass topology deployment id
         parentGrp.setId(paaSTopologyDeploymentContext.getDeploymentPaaSId().toLowerCase());
         parentGrp.setApps(Lists.newArrayList());
-        parentGrp.setDependencies(Lists.newArrayList());
 
         // Docker containers are non-natives
         final List<PaaSNodeTemplate> paaSNodeTemplates = paaSTopologyDeploymentContext.getPaaSTopology().getNonNatives();
@@ -83,8 +78,6 @@ public class MarathonMappingService {
         docker.setPortMappings(Lists.newArrayList());
         docker.setParameters(Lists.newArrayList());
         appDef.setEnv(Maps.newHashMap());
-        appDef.setLabels(Maps.newHashMap());
-        appDef.setDependencies(Lists.newArrayList());
 
         // Resources TODO: check null
         final ScalarPropertyValue cpu_share = (ScalarPropertyValue) nodeTemplateProperties.get("cpu_share");
@@ -110,34 +103,36 @@ public class MarathonMappingService {
         /* Prefix-based mapping : ENV_ => Env var, OPT_ => docker option, ARG_ => Docker run args */
         if (createOperation.getInputParameters() != null) {
             createOperation.getInputParameters().forEach((key, val) -> {
-                // Input as environment variable within the container - TODO check length > prefix_
+
                 String value = "";
                 if (val instanceof FunctionPropertyValue
                         && "get_property".equals(((FunctionPropertyValue) val).getFunction())
                         && "REQ_TARGET".equals(((FunctionPropertyValue) val).getTemplateName())) {
+
+                    // Search for the requirement's target by filter the relationships' templates of this node.
+                    // If a target is found, then lookup for the given property name in its capabilities.
+                    // The orchestrator replaces the PORT and IP_ADDRESS by the target's service port and the load balancer hostname respectively.
                     String requirementName = ((FunctionPropertyValue) val).getCapabilityOrRequirementName();
                     String propertyName = ((FunctionPropertyValue) val).getElementNameToFetch();
 
-                    // Scout for relationship
                     value = paaSNodeTemplate.getRelationshipTemplates().stream()
                             .filter(item -> paaSNodeTemplate.getId().equals(item.getSource()) && requirementName.equals(item.getTemplate().getRequirementName()))
-                            .findFirst()
+                            .findFirst() // Find the first relationship template which fulfills the given requirement, for this source
                             .map(relationshipTemplate -> {
                                 String target = relationshipTemplate.getTemplate().getTarget();
                                 String targetedCapability = relationshipTemplate.getTemplate().getTargetedCapabilityName();
 
-                                // Special marathon case use service ports if the "Port" property is required. - TODO : check derived_from marathon ?
-                                if (relationshipTemplate.instanceOf("tosca.relationships.ConnectsTo")) {
-                                    if ("port".equalsIgnoreCase(propertyName)) {
+                                // Special marathon case use service ports if the "Port" property is required.
+                                if (relationshipTemplate.instanceOf("tosca.relationships.ConnectsTo")) { // - TODO/FIXME : check target derived_from marathon
+                                    if ("port".equalsIgnoreCase(propertyName))
                                         // TODO: Retrieve service port if exists - if not, get capability value
                                         return String.valueOf(mapPortEndpoints.getOrDefault(target.concat(targetedCapability), 0));
-                                    } else if ("ip_address".equalsIgnoreCase(propertyName)) {
+                                    else if ("ip_address".equalsIgnoreCase(propertyName))
                                         // Return marathon-lb hostname
                                         return "marathon-lb.marathon.mesos";
-                                    }
-                                    // TODO else case
                                 }
-                                // TODO: Add the REQ_TARGET keyword in the evaluateGetProperty function
+                                // Nominal case : get the requirement's targeted capability property.
+                                // TODO: Add the REQ_TARGET keyword in the evaluateGetProperty function soo this is evaluated at parsing
                                 return FunctionEvaluator.evaluateGetPropertyFunction((FunctionPropertyValue) val, paaSNodeTemplate, paaSTopology.getAllNodes());
                             }).orElse("");
                 } else if (val instanceof ScalarPropertyValue) {
@@ -145,11 +140,14 @@ public class MarathonMappingService {
                 }
 
                 if (key.startsWith("ENV_")) {
+                    // Input as environment variable within the container
                     appDef.getEnv().put(key.replaceFirst("^ENV_", ""), value);
                 } else if (key.startsWith("OPT_")) {
-                    // TODO
+                    // Input as a docker option given to the docker cli
+                    docker.getParameters().add(new Parameter(key.replaceFirst("OPT_", ""), value));
                 } else if (key.startsWith("ARG_")) {
-                    // TODO
+                    // Input as an argument to the docker run command
+                    appDef.getArgs().add(value); // Arguments are unnamed
                 } else
                     log.warn("Unrecognized prefix for input : <" + key + ">");
             });
@@ -170,7 +168,7 @@ public class MarathonMappingService {
                 mapPortEndpoints.put(paaSNodeTemplate.getId().concat(name), servicePort);
 
                 // FIXME: set haproxy_group only if necessary
-                appDef.getLabels().put("HAPROXY_GROUP", "internal");
+                appDef.addLabel("HAPROXY_GROUP", "internal");
 
                 if (capability.getProperties().containsKey("docker_bridge_port_mapping")) {
                     docker.setNetwork("BRIDGE");
@@ -196,7 +194,7 @@ public class MarathonMappingService {
                         mapPortEndpoints.put(v.getTarget().concat(v.getTargetedCapabilityName()), this.servicePortIncrement.getAndIncrement());
                     }
                     // Anyway, add a dependency to the target
-                    appDef.getDependencies().add(v.getTarget().toLowerCase());
+                    appDef.addDependency(v.getTarget().toLowerCase());
                 }
             });
         }
