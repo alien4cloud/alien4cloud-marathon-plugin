@@ -16,6 +16,8 @@ import lombok.extern.slf4j.Slf4j;
 import mesosphere.marathon.client.Marathon;
 import mesosphere.marathon.client.MarathonClient;
 import mesosphere.marathon.client.model.v2.App;
+import mesosphere.marathon.client.model.v2.Group;
+import mesosphere.marathon.client.model.v2.Result;
 import mesosphere.marathon.client.utils.MarathonException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
@@ -68,14 +70,15 @@ public class MarathonOrchestrator implements IOrchestratorPlugin<MarathonConfig>
 
     @Override
     public void deploy(PaaSTopologyDeploymentContext paaSTopologyDeploymentContext, IPaaSCallback<?> iPaaSCallback) {
-        App appDef = marathonMappingService.buildAppDefinition(paaSTopologyDeploymentContext, config);
+        Group group = marathonMappingService.buildGroupDefinition(paaSTopologyDeploymentContext);
         try {
-            appDef = marathonClient.createApp(appDef);
+            Result result = marathonClient.createGroup(group);
+            log.debug(result.toString());
             deployed = true;
         } catch (MarathonException e) {
             log.error("Got HTTP error response : " + e.getStatus());
             log.error("With body : " + e.getMessage());
-
+            e.printStackTrace();
             // TODO deal with status response
         }
 
@@ -84,6 +87,13 @@ public class MarathonOrchestrator implements IOrchestratorPlugin<MarathonConfig>
 
     @Override
     public void undeploy(PaaSDeploymentContext paaSDeploymentContext, IPaaSCallback<?> iPaaSCallback) {
+        try {
+            Result result = marathonClient.deleteGroup(paaSDeploymentContext.getDeploymentPaaSId().toLowerCase());
+            log.debug(result.toString());
+        } catch (MarathonException e) {
+            log.error("undeploy : " + e.getMessage());
+            e.printStackTrace();
+        }
         deployed = false;
         iPaaSCallback.onSuccess(null);
     }
@@ -100,6 +110,7 @@ public class MarathonOrchestrator implements IOrchestratorPlugin<MarathonConfig>
 
     @Override
     public void getStatus(PaaSDeploymentContext paaSDeploymentContext, IPaaSCallback<DeploymentStatus> iPaaSCallback) {
+        // Récupération du groupe, ou vérification du déploiement ? Subscription a l'event stream ?
         if (deployed) iPaaSCallback.onSuccess(DeploymentStatus.DEPLOYED);
         else iPaaSCallback.onSuccess(DeploymentStatus.UNDEPLOYED);
     }
