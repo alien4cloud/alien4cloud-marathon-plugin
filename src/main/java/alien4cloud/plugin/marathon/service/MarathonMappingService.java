@@ -46,15 +46,15 @@ public class MarathonMappingService {
         Group parentGrp = new Group();
         // Group id == pass topology deployment id
         parentGrp.setId(paaSTopologyDeploymentContext.getDeploymentPaaSId().toLowerCase());
-        parentGrp.setApps(Lists.<App>newArrayList());
-        parentGrp.setDependencies(Lists.<String>newArrayList());
-        parentGrp.setVersion(paaSTopologyDeploymentContext.getDeploymentTopology().getVersionId());
+        parentGrp.setApps(Lists.newArrayList());
+        parentGrp.setDependencies(Lists.newArrayList());
 
         // Docker containers are non-natives
-        for (PaaSNodeTemplate paaSNodeTemplate : paaSTopologyDeploymentContext.getPaaSTopology().getNonNatives()) {
-            // app definition
-        }
+        final List<PaaSNodeTemplate> paaSNodeTemplates = paaSTopologyDeploymentContext.getPaaSTopology().getNonNatives();
 
+        paaSNodeTemplates.forEach(node -> {
+            parentGrp.getApps().add(buildAppDefinition(node, paaSTopologyDeploymentContext.getPaaSTopology()));
+        });
 
         return parentGrp;
     }
