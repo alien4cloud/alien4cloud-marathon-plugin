@@ -1,5 +1,22 @@
 package alien4cloud.plugin.marathon;
 
+import java.util.Date;
+import java.util.List;
+import java.util.Map;
+
+import javax.inject.Inject;
+import javax.ws.rs.client.Client;
+import javax.ws.rs.client.ClientBuilder;
+import javax.ws.rs.client.WebTarget;
+
+import org.glassfish.jersey.media.sse.EventListener;
+import org.glassfish.jersey.media.sse.EventSource;
+import org.glassfish.jersey.media.sse.SseFeature;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Component;
+
+import com.google.common.collect.Lists;
+
 import alien4cloud.orchestrators.plugin.ILocationConfiguratorPlugin;
 import alien4cloud.orchestrators.plugin.IOrchestratorPlugin;
 import alien4cloud.orchestrators.plugin.model.PluginArchive;
@@ -11,21 +28,12 @@ import alien4cloud.paas.model.*;
 import alien4cloud.plugin.marathon.config.MarathonConfig;
 import alien4cloud.plugin.marathon.location.MarathonLocationConfiguratorFactory;
 import alien4cloud.plugin.marathon.service.MarathonMappingService;
-import com.google.common.collect.Lists;
 import lombok.extern.slf4j.Slf4j;
 import mesosphere.marathon.client.Marathon;
 import mesosphere.marathon.client.MarathonClient;
-import mesosphere.marathon.client.model.v2.App;
 import mesosphere.marathon.client.model.v2.Group;
 import mesosphere.marathon.client.model.v2.Result;
 import mesosphere.marathon.client.utils.MarathonException;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.stereotype.Component;
-
-import javax.inject.Inject;
-import java.util.Date;
-import java.util.List;
-import java.util.Map;
 
 /**
  * @author Adrian Fraisse
@@ -61,11 +69,16 @@ public class MarathonOrchestrator implements IOrchestratorPlugin<MarathonConfig>
     public void setConfiguration(MarathonConfig marathonConfig) throws PluginConfigurationException {
         this.config = marathonConfig;
         marathonClient = MarathonClient.getInstance(config.getMarathonURL());
+        final Client client = ClientBuilder.newBuilder().register(SseFeature.class).build();
+        WebTarget target = client.target(config.getMarathonURL().concat("/v2/events"));
+        EventSource eventSource = EventSource.target(target).build();
+        EventListener listener = inboundEvent -> log.debug("[ Event from marathon ] : " + inboundEvent.readData(String.class));
+        eventSource.register(listener, "message");
+        eventSource.open();
     }
 
     @Override
     public void init(Map<String, PaaSTopologyDeploymentContext> map) {
-
     }
 
     @Override
