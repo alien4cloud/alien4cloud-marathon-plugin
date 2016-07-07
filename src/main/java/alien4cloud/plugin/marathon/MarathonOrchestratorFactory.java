@@ -1,17 +1,19 @@
 package alien4cloud.plugin.marathon;
 
+import java.util.Map;
+
+import javax.annotation.Resource;
+
+import org.springframework.beans.factory.BeanFactory;
+import org.springframework.stereotype.Component;
+
+import com.google.common.collect.Maps;
+
 import alien4cloud.model.components.PropertyDefinition;
 import alien4cloud.model.orchestrators.ArtifactSupport;
 import alien4cloud.model.orchestrators.locations.LocationSupport;
 import alien4cloud.orchestrators.plugin.IOrchestratorPluginFactory;
-import alien4cloud.plugin.aop.Overridable;
 import alien4cloud.plugin.marathon.config.MarathonConfig;
-import com.google.common.collect.Maps;
-import org.springframework.beans.factory.BeanFactory;
-import org.springframework.stereotype.Component;
-
-import javax.annotation.Resource;
-import java.util.Map;
 
 /**
  * @author Adrian Fraisse

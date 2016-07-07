@@ -3,15 +3,15 @@ package alien4cloud.plugin.marathon;
 import java.util.Date;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 import javax.inject.Inject;
 import javax.ws.rs.client.Client;
 import javax.ws.rs.client.ClientBuilder;
 import javax.ws.rs.client.WebTarget;
 
-import org.glassfish.jersey.media.sse.EventListener;
-import org.glassfish.jersey.media.sse.EventSource;
-import org.glassfish.jersey.media.sse.SseFeature;
+import org.glassfish.jersey.media.sse.*;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
@@ -53,6 +53,7 @@ public class MarathonOrchestrator implements IOrchestratorPlugin<MarathonConfig>
 
     @Inject
     private MarathonLocationConfiguratorFactory marathonLocationConfiguratorFactory;
+    private EventSource eventSource;
 
     @Override
     public ILocationConfiguratorPlugin getConfigurator(String locationType) {
@@ -69,11 +70,11 @@ public class MarathonOrchestrator implements IOrchestratorPlugin<MarathonConfig>
     public void setConfiguration(MarathonConfig marathonConfig) throws PluginConfigurationException {
         this.config = marathonConfig;
         marathonClient = MarathonClient.getInstance(config.getMarathonURL());
-        final Client client = ClientBuilder.newBuilder().register(SseFeature.class).build();
+        Client client = ClientBuilder.newBuilder().register(SseFeature.class).build();
         WebTarget target = client.target(config.getMarathonURL().concat("/v2/events"));
-        EventSource eventSource = EventSource.target(target).build();
-        EventListener listener = inboundEvent -> log.debug("[ Event from marathon ] : " + inboundEvent.readData(String.class));
-        eventSource.register(listener, "message");
+        eventSource = new EventSource(target);
+        EventListener listener = inboundEvent -> log.debug("[Event from marathon] : { name:" + inboundEvent.getName() + ", data: " + inboundEvent.readData(String.class) + " }");
+        eventSource.register(listener, "event_stream_attached", "status_update_event", "group_change_success", "deployment_success", "deployment_info");
         eventSource.open();
     }
 
@@ -135,7 +136,7 @@ public class MarathonOrchestrator implements IOrchestratorPlugin<MarathonConfig>
 
     @Override
     public void getEventsSince(Date date, int i, IPaaSCallback<AbstractMonitorEvent[]> iPaaSCallback) {
-
+        System.out.println("");
     }
 
     @Override
