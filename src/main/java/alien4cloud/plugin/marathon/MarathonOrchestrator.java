@@ -75,7 +75,9 @@ public class MarathonOrchestrator implements IOrchestratorPlugin<MarathonConfig>
         eventSource = new EventSource(target);
         EventListener listener = inboundEvent -> log.debug("[Event from marathon] : { name:" + inboundEvent.getName() + ", data: " + inboundEvent.readData(String.class) + " }");
         eventSource.register(listener, "event_stream_attached", "status_update_event", "group_change_success", "deployment_success", "deployment_info");
-        eventSource.open();
+        if (!eventSource.isOpen()) {
+            eventSource.open();
+        }
     }
 
     @Override
