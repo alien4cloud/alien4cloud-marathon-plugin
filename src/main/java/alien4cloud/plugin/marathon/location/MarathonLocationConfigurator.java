@@ -38,12 +38,6 @@ public class MarathonLocationConfigurator implements ILocationConfiguratorPlugin
     @Inject
     private ArchiveParser archiveParser;
 
-    @Inject
-    private MatchingConfigurationsParser matchingConfigurationsParser;
-
-    @Inject
-    private LocationResourceGeneratorService resourceGeneratorService;
-
     private List<PluginArchive> archives;
 
     @Override
