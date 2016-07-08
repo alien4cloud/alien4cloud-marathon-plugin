@@ -34,8 +34,7 @@ public class MarathonOrchestratorFactory implements IOrchestratorPluginFactory<M
 
     @Override
     public MarathonConfig getDefaultConfiguration() {
-        MarathonConfig config = new MarathonConfig("http://localhost:8080");
-        return config;
+        return new MarathonConfig("http://localhost:8080");
     }
 
     @Override
@@ -50,7 +49,7 @@ public class MarathonOrchestratorFactory implements IOrchestratorPluginFactory<M
 
     @Override
     public ArtifactSupport getArtifactSupport() {
-        return new ArtifactSupport(new String[] { "tosca.artifacts.Deployment.Image.Container.Docker", "tosca.artifacts.Implementation.Bash", "alien.artifacts.BatchScript" });
+        return new ArtifactSupport(new String[] { "tosca.artifacts.Deployment.Image.Container.Docker" });
     }
 
     @Override
