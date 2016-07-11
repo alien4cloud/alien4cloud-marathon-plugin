@@ -33,6 +33,7 @@ import lombok.extern.slf4j.Slf4j;
 import mesosphere.marathon.client.Marathon;
 import mesosphere.marathon.client.MarathonClient;
 import mesosphere.marathon.client.model.v2.App;
+import mesosphere.marathon.client.model.v2.Deployment;
 import mesosphere.marathon.client.model.v2.Group;
 import mesosphere.marathon.client.model.v2.Result;
 import mesosphere.marathon.client.utils.MarathonException;
@@ -43,8 +44,6 @@ import mesosphere.marathon.client.utils.MarathonException;
 @Slf4j
 @Component
 public class MarathonOrchestrator implements IOrchestratorPlugin<MarathonConfig> {
-
-    private MarathonConfig config;
 
     @Autowired
     private MarathonMappingService marathonMappingService;
@@ -68,11 +67,10 @@ public class MarathonOrchestrator implements IOrchestratorPlugin<MarathonConfig>
 
     @Override
     public void setConfiguration(MarathonConfig marathonConfig) throws PluginConfigurationException {
-        this.config = marathonConfig;
-        marathonClient = MarathonClient.getInstance(config.getMarathonURL());
+        marathonClient = MarathonClient.getInstance(marathonConfig.getMarathonURL());
 
         Client client = ClientBuilder.newBuilder().register(SseFeature.class).build();
-        WebTarget target = client.target(config.getMarathonURL().concat("/v2/events"));
+        WebTarget target = client.target(marathonConfig.getMarathonURL().concat("/v2/events"));
         eventSource = new EventSource(target);
         EventListener listener = inboundEvent -> log.info("[Event from marathon] : { name:" + inboundEvent.getName() + ", data: " + inboundEvent.readData(String.class) + " }");
         eventSource.register(listener, "status_update_event", "group_change_success", "group_change_failed", "deployment_success", "deployment_info", "deployment_failed", "health_status_changed_event", "failed_health_check_event");
@@ -125,61 +123,88 @@ public class MarathonOrchestrator implements IOrchestratorPlugin<MarathonConfig>
 
     @Override
     public void getStatus(PaaSDeploymentContext paaSDeploymentContext, IPaaSCallback<DeploymentStatus> iPaaSCallback) {
-        // This is java 8 ! TODO: Throw exception in lambdas ?
+        final String groupID = paaSDeploymentContext.getDeploymentPaaSId().toLowerCase();
         try {
-            // Retrieve the group
-            final String groupID = paaSDeploymentContext.getDeploymentPaaSId().toLowerCase();
-            DeploymentStatus status = Optional.of(marathonClient.getGroup(groupID))
-                .map(group -> {
-                    // The topology exists in Marathon - Check its state : first get all running deployments
-                    try {
-                        return marathonClient.getDeployments().stream() // Retrieve deployments
-                            .filter(deploy ->
-                                // If any deployment affects an app from the group, then it means the group is undertaking deployment
-                                deploy.getAffectedApps().stream().anyMatch(s -> s.matches("^//" + groupID + "//"))
-                            ).findFirst()
-                                .map(deployment -> // We got a deployment - check if it is deploying or undeploying an application group
-                                    deployment.getCurrentActions()
-                                    .stream()
-                                    .noneMatch(action -> // All actions but StopApplication reflect a deployment in progress
-                                            action.getAction().matches("^StopApplication$")
-                                    ) ? DeploymentStatus.DEPLOYMENT_IN_PROGRESS : DeploymentStatus.UNDEPLOYMENT_IN_PROGRESS
-                                ).orElseGet(() -> {
-                                    // There is no deployment but the group exists in Marathon : Check app states
-                                    // First, we retrieve the Apps info from marathon
-                                    List<App> appInfo = Lists.newArrayList();
-                                    group.getApps().forEach(app -> {
-                                        try {
-                                            appInfo.add(marathonClient.getApp(app.getId()).getApp());
-                                        } catch (MarathonException e) {
-                                            log.error("Failure reaching for apps");
-                                            // TODO: Check status code - if 404 then failure
-                                        }
-                                    });
-                                    // Then check task status for each app
-                                    if (appInfo.stream().map(App::getTasksUnhealthy).reduce(Integer::sum).orElse(0) > 0)
-                                        return DeploymentStatus.FAILURE; // If any of the Tasks is unhealthy, then consider the topology to be failing
-                                    else
-                                        return DeploymentStatus.DEPLOYED;
-                                });
-                    } catch (MarathonException e) {
-                        log.error("Failure reaching for deployments");
-                        iPaaSCallback.onFailure(e);
-                    }
-                    return DeploymentStatus.UNKNOWN; // FIXME
-                }).orElse(DeploymentStatus.UNDEPLOYED);
+            DeploymentStatus status = Optional.of(marathonClient.getGroup(groupID)) // Retrieve the application group of this topology
+                    .map(this::getTopologyDeploymentStatus).orElse(DeploymentStatus.UNDEPLOYED); // Check its status
             // Finally, delegate to callback !
             iPaaSCallback.onSuccess(status);
-        } catch (MarathonException e) { // TODO: deal with other codes
+        } catch (MarathonException e) {
             switch (e.getStatus()) {
-            case 404 : // If 404 then the group was not found on Marathon
-                iPaaSCallback.onSuccess(DeploymentStatus.UNDEPLOYED);
-                break;
-            default:
-                log.error("Unable to reach Marathon");
-                iPaaSCallback.onFailure(e);
+                case 404 : // If 404 then the group was not found on Marathon
+                    iPaaSCallback.onSuccess(DeploymentStatus.UNDEPLOYED);
+                    break;
+                default: // Other codes are errors
+                    log.error("Unable to reach Marathon - Got error code ["+e.getStatus()+"] with message: " + e.getMessage());
+                    iPaaSCallback.onFailure(e);
             }
+        } catch (RuntimeException e) {
+            iPaaSCallback.onFailure(e.getCause());
         }
+    }
+
+    /**
+     * Retrieves the status of a Topology which has already been deployed on Marathon.
+     * @param group The topology's Marathon group
+     * @return A <code>DeploymentStatus</code> representing the state of the topology in Marathon
+     * @throws RuntimeException Any exception while reaching Marathon.
+     */
+    private DeploymentStatus getTopologyDeploymentStatus(Group group) throws RuntimeException {
+        try {
+            return marathonClient.getDeployments().stream() // Retrieve deployments
+                    .filter(deployment ->
+                            // If any deployment affects an app from the group, then it means the group is undertaking deployment
+                            deployment.getAffectedApps().stream().anyMatch(s -> s.matches("^//" + group.getId() + "//"))
+                    ).findFirst()
+                    .map(this::getRunningDeploymentStatus) // A deployment matches - check if it is deploying or undeploying
+                    .orElseGet(() -> getDeployedTopologyStatus(group));// No deployment but the group exists in Marathon => the topology is deployed, check states
+        } catch (MarathonException e) {
+            log.error("Failure reaching for deployments - Got error code ["+e.getStatus()+"] with message: " + e.getMessage());
+            throw new RuntimeException(e);
+        }
+    }
+
+    /**
+     * Given a running Deployment, returns if it is actually deploying or un-deploying a topology.
+     * @param deployment A running deployment on Marathon.
+     * @return <code>DeploymentStatus.DEPLOYMENT_IN_PROGRESS</code> or <code>DeploymentStatus.UNDEPLOYMENT_IN_PROGRESS</code>.
+     */
+    private DeploymentStatus getRunningDeploymentStatus(Deployment deployment) {
+        return deployment.getCurrentActions()
+                .stream()
+                .noneMatch(action -> // All actions but StopApplication reflect a deployment in progress
+                        action.getAction().matches("^StopApplication$")
+                ) ? DeploymentStatus.DEPLOYMENT_IN_PROGRESS : DeploymentStatus.UNDEPLOYMENT_IN_PROGRESS;
+    }
+
+    /**
+     * Given a deployed topology, get its status.
+     * @param group The Marathon application group.
+     * @return <code>DeploymentStatus.DEPLOYED</code> if all apps are healthy or <code>DeploymentStatus.FAILURE</code> if not.
+     */
+    private DeploymentStatus getDeployedTopologyStatus(Group group) throws RuntimeException {
+        // First, we retrieve the Apps info from marathon
+        List<App> appInfo = Lists.newArrayList();
+        group.getApps().forEach(app -> {
+            try {
+                appInfo.add(marathonClient.getApp(app.getId()).getApp());
+            } catch (MarathonException e) {
+                log.error("Failure reaching for apps - Got error code ["+e.getStatus()+"] with message: " + e.getMessage());
+                switch (e.getStatus()) {
+                case 404:
+                    break;
+                    // Continue checking for apps
+                default:
+                    throw new RuntimeException(e);
+                }
+            }
+        });
+
+        // Then check task status for each app
+        if (appInfo.size() < group.getApps().size() && appInfo.stream().map(App::getTasksUnhealthy).reduce(Integer::sum).orElse(0) > 0)
+            return DeploymentStatus.FAILURE; // If any of the Tasks is unhealthy, then consider the topology to be failing
+        else
+            return DeploymentStatus.DEPLOYED;
     }
 
     @Override
@@ -189,7 +214,7 @@ public class MarathonOrchestrator implements IOrchestratorPlugin<MarathonConfig>
 
     @Override
     public void getEventsSince(Date date, int i, IPaaSCallback<AbstractMonitorEvent[]> iPaaSCallback) {
-        System.out.println("");
+
     }
 
     @Override
