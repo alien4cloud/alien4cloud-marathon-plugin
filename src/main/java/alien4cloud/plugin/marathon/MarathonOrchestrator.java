@@ -51,8 +51,6 @@ public class MarathonOrchestrator implements IOrchestratorPlugin<MarathonConfig>
 
     private Marathon marathonClient;
 
-    private boolean deployed = false;
-
     @Inject
     private MarathonLocationConfiguratorFactory marathonLocationConfiguratorFactory;
     private EventSource eventSource;
@@ -93,7 +91,6 @@ public class MarathonOrchestrator implements IOrchestratorPlugin<MarathonConfig>
         try {
             Result result = marathonClient.createGroup(group);
             log.debug(result.toString());
-            deployed = true;
         } catch (MarathonException e) {
             log.error("Got HTTP error response : " + e.getStatus());
             log.error("With body : " + e.getMessage());
@@ -113,7 +110,6 @@ public class MarathonOrchestrator implements IOrchestratorPlugin<MarathonConfig>
             log.error("undeploy : " + e.getMessage());
             e.printStackTrace();
         }
-        deployed = false;
         iPaaSCallback.onSuccess(null);
     }
 
@@ -135,7 +131,7 @@ public class MarathonOrchestrator implements IOrchestratorPlugin<MarathonConfig>
             final String groupID = paaSDeploymentContext.getDeploymentPaaSId().toLowerCase();
             DeploymentStatus status = Optional.of(marathonClient.getGroup(groupID))
                 .map(group -> {
-                    // Get all running deployments
+                    // The topology exists in Marathon - Check its state : first get all running deployments
                     try {
                         return marathonClient.getDeployments().stream() // Retrieve deployments
                             .filter(deploy ->
@@ -157,7 +153,7 @@ public class MarathonOrchestrator implements IOrchestratorPlugin<MarathonConfig>
                                             appInfo.add(marathonClient.getApp(app.getId()).getApp());
                                         } catch (MarathonException e) {
                                             log.error("Failure reaching for apps");
-                                            // Continue looking
+                                            // TODO: Check status code - if 404 then failure
                                         }
                                     });
                                     // Then check task status for each app
@@ -170,19 +166,19 @@ public class MarathonOrchestrator implements IOrchestratorPlugin<MarathonConfig>
                         log.error("Failure reaching for deployments");
                         iPaaSCallback.onFailure(e);
                     }
-                    return DeploymentStatus.DEPLOYMENT_IN_PROGRESS;
+                    return DeploymentStatus.UNKNOWN; // FIXME
                 }).orElse(DeploymentStatus.UNDEPLOYED);
             // Finally, delegate to callback !
             iPaaSCallback.onSuccess(status);
-        } catch (MarathonException e) {
+        } catch (MarathonException e) { // TODO: deal with other codes
             switch (e.getStatus()) {
             case 404 : // If 404 then the group was not found on Marathon
                 iPaaSCallback.onSuccess(DeploymentStatus.UNDEPLOYED);
                 break;
-            default: iPaaSCallback.onFailure(e);
+            default:
+                log.error("Unable to reach Marathon");
+                iPaaSCallback.onFailure(e);
             }
-            log.error("Unable to reach Marathon");
-            iPaaSCallback.onFailure(e);
         }
     }
 
