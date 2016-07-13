@@ -6,13 +6,7 @@ import java.util.Map;
 import java.util.Optional;
 
 import javax.inject.Inject;
-import javax.ws.rs.client.Client;
-import javax.ws.rs.client.ClientBuilder;
-import javax.ws.rs.client.WebTarget;
 
-import org.glassfish.jersey.media.sse.EventListener;
-import org.glassfish.jersey.media.sse.EventSource;
-import org.glassfish.jersey.media.sse.SseFeature;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
@@ -28,6 +22,7 @@ import alien4cloud.paas.exception.PluginConfigurationException;
 import alien4cloud.paas.model.*;
 import alien4cloud.plugin.marathon.config.MarathonConfig;
 import alien4cloud.plugin.marathon.location.MarathonLocationConfiguratorFactory;
+import alien4cloud.plugin.marathon.service.EventService;
 import alien4cloud.plugin.marathon.service.MarathonMappingService;
 import lombok.extern.slf4j.Slf4j;
 import mesosphere.marathon.client.Marathon;
@@ -48,11 +43,12 @@ public class MarathonOrchestrator implements IOrchestratorPlugin<MarathonConfig>
     @Autowired
     private MarathonMappingService marathonMappingService;
 
+    private EventService eventService;
+
     private Marathon marathonClient;
 
     @Inject
     private MarathonLocationConfiguratorFactory marathonLocationConfiguratorFactory;
-    private EventSource eventSource;
 
     @Override
     public ILocationConfiguratorPlugin getConfigurator(String locationType) {
@@ -68,15 +64,7 @@ public class MarathonOrchestrator implements IOrchestratorPlugin<MarathonConfig>
     @Override
     public void setConfiguration(MarathonConfig marathonConfig) throws PluginConfigurationException {
         marathonClient = MarathonClient.getInstance(marathonConfig.getMarathonURL());
-
-        Client client = ClientBuilder.newBuilder().register(SseFeature.class).build();
-        WebTarget target = client.target(marathonConfig.getMarathonURL().concat("/v2/events"));
-        eventSource = new EventSource(target);
-        EventListener listener = inboundEvent -> log.info("[Event from marathon] : { name:" + inboundEvent.getName() + ", data: " + inboundEvent.readData(String.class) + " }");
-        eventSource.register(listener, "status_update_event", "group_change_success", "group_change_failed", "deployment_success", "deployment_info", "deployment_failed", "health_status_changed_event", "failed_health_check_event");
-        if (!eventSource.isOpen()) {
-            eventSource.open();
-        }
+        eventService = new EventService(marathonConfig.getMarathonURL().concat("/v2"));
     }
 
     @Override
@@ -88,14 +76,12 @@ public class MarathonOrchestrator implements IOrchestratorPlugin<MarathonConfig>
         Group group = marathonMappingService.buildGroupDefinition(paaSTopologyDeploymentContext);
         try {
             Result result = marathonClient.createGroup(group);
-            log.debug(result.toString());
+            this.eventService.registerDeployment(result.getDeploymentId(), paaSTopologyDeploymentContext.getDeploymentId(), DeploymentStatus.DEPLOYMENT_IN_PROGRESS);
+            // Store the deployment ID to handle event mapping
         } catch (MarathonException e) {
-            log.error("Got HTTP error response : " + e.getStatus());
-            log.error("With body : " + e.getMessage());
-            e.printStackTrace();
+            log.error("Failure while deploying - Got error code ["+e.getStatus()+"] with message: " + e.getMessage());
             // TODO deal with status response
         }
-
         // No callback
     }
 
@@ -103,7 +89,7 @@ public class MarathonOrchestrator implements IOrchestratorPlugin<MarathonConfig>
     public void undeploy(PaaSDeploymentContext paaSDeploymentContext, IPaaSCallback<?> iPaaSCallback) {
         try {
             Result result = marathonClient.deleteGroup(paaSDeploymentContext.getDeploymentPaaSId().toLowerCase());
-            log.debug(result.toString());
+            this.eventService.registerDeployment(result.getDeploymentId(), paaSDeploymentContext.getDeploymentId(), DeploymentStatus.UNDEPLOYMENT_IN_PROGRESS);
         } catch (MarathonException e) {
             log.error("undeploy : " + e.getMessage());
             e.printStackTrace();
@@ -209,12 +195,12 @@ public class MarathonOrchestrator implements IOrchestratorPlugin<MarathonConfig>
 
     @Override
     public void getInstancesInformation(PaaSTopologyDeploymentContext paaSTopologyDeploymentContext, IPaaSCallback<Map<String, Map<String, InstanceInformation>>> iPaaSCallback) {
-
     }
 
     @Override
     public void getEventsSince(Date date, int i, IPaaSCallback<AbstractMonitorEvent[]> iPaaSCallback) {
-
+        final List<AbstractMonitorEvent> eventList = this.eventService.getEventsSince(date, i);
+        iPaaSCallback.onSuccess(eventList.toArray(new AbstractMonitorEvent[eventList.size()]));
     }
 
     @Override
