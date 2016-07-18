@@ -155,7 +155,7 @@ public class MarathonOrchestrator implements IOrchestratorPlugin<MarathonConfig>
         return deployment.getCurrentActions()
                 .stream()
                 .noneMatch(action -> // All actions but StopApplication reflect a deployment in progress
-                        action.getAction().matches("^StopApplication$")
+                        action.getType().matches("^StopApplication$")
                 ) ? DeploymentStatus.DEPLOYMENT_IN_PROGRESS : DeploymentStatus.UNDEPLOYMENT_IN_PROGRESS;
     }
 
@@ -196,10 +196,10 @@ public class MarathonOrchestrator implements IOrchestratorPlugin<MarathonConfig>
         final String groupID = paaSTopologyDeploymentContext.getDeploymentPaaSId().toLowerCase();
         // For each app query Marathon for its tasks status
         paaSTopologyDeploymentContext.getPaaSTopology().getNonNatives().forEach(paaSNodeTemplate -> {
-            try {
-                Map<String, InstanceInformation> instancesInfo = Maps.newHashMap();
+            Map<String, InstanceInformation> instancesInfo = Maps.newHashMap();
+            final String appID = groupID + "/" + paaSNodeTemplate.getId().toLowerCase();
 
-                final String appID = groupID + "/" + paaSNodeTemplate.getId().toLowerCase();
+            try {
                 final Collection<Task> tasks = marathonClient.getAppTasks(appID).getTasks();
 
                 tasks.forEach(task -> {
@@ -210,21 +210,54 @@ public class MarathonOrchestrator implements IOrchestratorPlugin<MarathonConfig>
                     runtimeProps.put("endpoint",
                             "http://".concat(task.getHost().concat(":").concat(String.join(",", ports))));
 
-                    // TODO: convert instance state.
-                    instancesInfo.put(task.getId(), new InstanceInformation("started", InstanceStatus.SUCCESS, runtimeProps, runtimeProps, Maps.newHashMap()));
+                    InstanceStatus instanceStatus;
+                    String state;
+
+                    // Leverage Mesos's TASK_STATUS
+                    switch (task.getState()) {
+                        case "TASK_RUNNING":
+                            // Retrieve health checks results - if no healthcheck then success
+                            state = "started";
+                            instanceStatus =
+                                Optional.ofNullable(task.getHealthCheckResults())
+                                    .map(healthCheckResults ->
+                                        healthCheckResults
+                                            .stream()
+                                            .findFirst()
+                                            .map(HealthCheckResult::isAlive)
+                                            .map(alive -> alive ? InstanceStatus.SUCCESS : InstanceStatus.FAILURE)
+                                        .orElse(InstanceStatus.PROCESSING)
+                                    ).orElse(InstanceStatus.SUCCESS);
+                            break;
+                        case "TASK_STARTING":
+                            state = "starting";
+                            instanceStatus = InstanceStatus.PROCESSING;
+                            break;
+                        case "TASK_STAGING":
+                            state = "creating";
+                            instanceStatus = InstanceStatus.PROCESSING;
+                            break;
+                        case "TASK_ERROR":
+                            state = "stopped";
+                            instanceStatus = InstanceStatus.FAILURE;
+                            break;
+                        default:
+                            state = "uninitialized";
+                            instanceStatus = InstanceStatus.PROCESSING;
+                    }
+
+                    instancesInfo.put(task.getId(), new InstanceInformation(state, instanceStatus, runtimeProps, runtimeProps, Maps.newHashMap()));
                 });
                 topologyInfo.put(paaSNodeTemplate.getId(), instancesInfo);
             } catch (MarathonException e) {
-                // TODO deal with 404 at least
                 switch (e.getStatus()) {
-                    case 404:
+                    case 404: // The app cannot be found in marathon - we display no information
                         break;
                     default:
-                    iPaaSCallback.onFailure(e);
+                        iPaaSCallback.onFailure(e);
                 }
             }
         });
-
         iPaaSCallback.onSuccess(topologyInfo);
     }
 
