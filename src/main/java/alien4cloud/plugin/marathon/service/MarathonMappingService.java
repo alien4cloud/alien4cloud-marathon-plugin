@@ -209,6 +209,15 @@ public class MarathonMappingService {
             appDef.setCmd(((ScalarPropertyValue) nodeTemplateProperties.get("docker_run_cmd")).getValue());
         }
 
+        /* Create a TCP health check */
+        HealthCheck healthCheck = new HealthCheck();
+        healthCheck.setPortIndex(0);
+        healthCheck.setProtocol("TCP");
+        healthCheck.setGracePeriodSeconds(300);
+        healthCheck.setIntervalSeconds(15);
+        healthCheck.setMaxConsecutiveFailures(1);
+        appDef.setHealthChecks(Lists.newArrayList(healthCheck));
+
         return appDef;
     }
 
