@@ -1,16 +1,16 @@
 package alien4cloud.plugin.marathon;
 
-import java.util.Date;
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
+import java.util.*;
 
 import javax.inject.Inject;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
+import com.google.common.base.Functions;
+import com.google.common.collect.Collections2;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 
 import alien4cloud.orchestrators.plugin.ILocationConfiguratorPlugin;
 import alien4cloud.orchestrators.plugin.IOrchestratorPlugin;
@@ -27,10 +27,7 @@ import alien4cloud.plugin.marathon.service.MarathonMappingService;
 import lombok.extern.slf4j.Slf4j;
 import mesosphere.marathon.client.Marathon;
 import mesosphere.marathon.client.MarathonClient;
-import mesosphere.marathon.client.model.v2.App;
-import mesosphere.marathon.client.model.v2.Deployment;
-import mesosphere.marathon.client.model.v2.Group;
-import mesosphere.marathon.client.model.v2.Result;
+import mesosphere.marathon.client.model.v2.*;
 import mesosphere.marathon.client.utils.MarathonException;
 
 /**
@@ -57,7 +54,6 @@ public class MarathonOrchestrator implements IOrchestratorPlugin<MarathonConfig>
 
     @Override
     public List<PluginArchive> pluginArchives() {
-        // TODO: ship docker types with orchestrator
         return Lists.newArrayList();
     }
 
@@ -195,6 +191,41 @@ public class MarathonOrchestrator implements IOrchestratorPlugin<MarathonConfig>
 
     @Override
     public void getInstancesInformation(PaaSTopologyDeploymentContext paaSTopologyDeploymentContext, IPaaSCallback<Map<String, Map<String, InstanceInformation>>> iPaaSCallback) {
+        Map<String, Map<String, InstanceInformation>> topologyInfo = Maps.newHashMap();
+
+        final String groupID = paaSTopologyDeploymentContext.getDeploymentPaaSId().toLowerCase();
+        // For each app query Marathon for its tasks status
+        paaSTopologyDeploymentContext.getPaaSTopology().getNonNatives().forEach(paaSNodeTemplate -> {
+            try {
+                Map<String, InstanceInformation> instancesInfo = Maps.newHashMap();
+
+                final String appID = groupID + "/" + paaSNodeTemplate.getId().toLowerCase();
+                final Collection<Task> tasks = marathonClient.getAppTasks(appID).getTasks();
+
+                tasks.forEach(task -> {
+                    final Map<String, String> runtimeProps = Maps.newHashMap();
+                    final Collection<String> ports = Collections2.transform(task.getPorts(), Functions.toStringFunction());
+
+                    // Outputs Marathon endpoints as host:port1,port2, ...
+                    runtimeProps.put("endpoint",
+                            "http://".concat(task.getHost().concat(":").concat(String.join(",", ports))));
+
+                    // TODO: convert instance state.
+                    instancesInfo.put(task.getId(), new InstanceInformation("started", InstanceStatus.SUCCESS, runtimeProps, runtimeProps, Maps.newHashMap()));
+                });
+                topologyInfo.put(paaSNodeTemplate.getId(), instancesInfo);
+            } catch (MarathonException e) {
+                // TODO deal with 404 at least
+                switch (e.getStatus()) {
+                    case 404:
+                        break;
+                    default:
+                    iPaaSCallback.onFailure(e);
+                }
+            }
+        });
+
+        iPaaSCallback.onSuccess(topologyInfo);
     }
 
     @Override
