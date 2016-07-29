@@ -7,7 +7,6 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
-import alien4cloud.model.topology.ScalingPolicy;
 import org.apache.commons.lang.NotImplementedException;
 import org.springframework.context.annotation.Scope;
 import org.springframework.stereotype.Service;
@@ -17,6 +16,7 @@ import com.google.common.collect.Maps;
 
 import alien4cloud.model.components.*;
 import alien4cloud.model.topology.NodeTemplate;
+import alien4cloud.model.topology.ScalingPolicy;
 import alien4cloud.paas.exception.NotSupportedException;
 import alien4cloud.paas.function.FunctionEvaluator;
 import alien4cloud.paas.model.PaaSNodeTemplate;
