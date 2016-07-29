@@ -91,7 +91,7 @@ public class MarathonOrchestrator implements IOrchestratorPlugin<MarathonConfig>
     public void getStatus(PaaSDeploymentContext paaSDeploymentContext, IPaaSCallback<DeploymentStatus> iPaaSCallback) {
         final String groupID = paaSDeploymentContext.getDeploymentPaaSId().toLowerCase();
         try {
-            DeploymentStatus status = Optional.of(marathonClient.getGroup(groupID)) // Retrieve the application group of this topology
+            DeploymentStatus status = Optional.ofNullable(marathonClient.getGroup(groupID)) // Retrieve the application group of this topology
                     .map(this::getTopologyDeploymentStatus).orElse(DeploymentStatus.UNDEPLOYED); // Check its status
             // Finally, delegate to callback
             iPaaSCallback.onSuccess(status);

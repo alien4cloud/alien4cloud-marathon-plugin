@@ -89,7 +89,7 @@ public class MarathonMappingService {
          * Init app structure
          */
         App appDef = new App();
-        appDef.setInstances(Optional.of(paaSNodeTemplate.getScalingPolicy()).orElse(ScalingPolicy.NOT_SCALABLE_POLICY).getInitialInstances());
+        appDef.setInstances(Optional.ofNullable(paaSNodeTemplate.getScalingPolicy()).orElse(ScalingPolicy.NOT_SCALABLE_POLICY).getInitialInstances());
         appDef.setId(paaSNodeTemplate.getId().toLowerCase());
         Container container = new Container();
         Docker docker = new Docker();
@@ -218,8 +218,8 @@ public class MarathonMappingService {
         final Map<String, AbstractPropertyValue> nodeTemplateProperties = nodeTemplate.getProperties();
 
         /* Resources Marathon should allocate the container - default 1.0 cpu 256 MB ram */
-        final Optional<String> cpu_share = Optional.of(((ScalarPropertyValue) nodeTemplateProperties.get("cpu_share")).getValue());
-        final Optional<String> mem_share = Optional.of(((ScalarPropertyValue) nodeTemplateProperties.get("mem_share")).getValue());
+        final Optional<String> cpu_share = Optional.ofNullable(((ScalarPropertyValue) nodeTemplateProperties.get("cpu_share")).getValue());
+        final Optional<String> mem_share = Optional.ofNullable(((ScalarPropertyValue) nodeTemplateProperties.get("mem_share")).getValue());
         appDef.setCpus(Double.valueOf(cpu_share.orElse("1.0")));
         appDef.setMem(Double.valueOf(mem_share.orElse("256.0")));
 
