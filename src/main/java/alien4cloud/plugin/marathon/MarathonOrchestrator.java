@@ -5,6 +5,7 @@ import java.util.*;
 import javax.inject.Inject;
 
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Scope;
 import org.springframework.stereotype.Component;
 
 import com.google.common.base.Functions;
@@ -31,10 +32,13 @@ import mesosphere.marathon.client.model.v2.*;
 import mesosphere.marathon.client.utils.MarathonException;
 
 /**
+ * The Marathon orchestrator implementation.
+ *
  * @author Adrian Fraisse
  */
 @Slf4j
 @Component
+@Scope("prototype")
 public class MarathonOrchestrator implements IOrchestratorPlugin<MarathonConfig> {
 
     @Autowired

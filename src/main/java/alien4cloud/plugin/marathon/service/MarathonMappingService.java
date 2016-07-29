@@ -7,6 +7,7 @@ import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 import org.apache.commons.lang.NotImplementedException;
+import org.springframework.context.annotation.Scope;
 import org.springframework.stereotype.Service;
 
 import com.google.common.collect.Lists;
@@ -27,6 +28,7 @@ import mesosphere.marathon.client.model.v2.*;
  */
 @Service
 @Log4j
+@Scope("prototype")
 public class MarathonMappingService {
 
     // TODO: Store increments in DB, or retrieve from Marathon ?
