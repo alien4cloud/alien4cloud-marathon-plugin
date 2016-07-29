@@ -52,16 +52,6 @@ public class MarathonOrchestrator implements IOrchestratorPlugin<MarathonConfig>
     private MarathonLocationConfiguratorFactory marathonLocationConfiguratorFactory;
 
     @Override
-    public ILocationConfiguratorPlugin getConfigurator(String locationType) {
-        return marathonLocationConfiguratorFactory.newInstance(locationType);
-    }
-
-    @Override
-    public List<PluginArchive> pluginArchives() {
-        return Lists.newArrayList();
-    }
-
-    @Override
     public void setConfiguration(MarathonConfig marathonConfig) throws PluginConfigurationException {
         marathonClient = MarathonClient.getInstance(marathonConfig.getMarathonURL());
         eventService = new EventService(marathonConfig.getMarathonURL().concat("/v2"));
@@ -80,31 +70,21 @@ public class MarathonOrchestrator implements IOrchestratorPlugin<MarathonConfig>
             // Store the deployment ID to handle event mapping
         } catch (MarathonException e) {
             log.error("Failure while deploying - Got error code ["+e.getStatus()+"] with message: " + e.getMessage());
-            // TODO deal with status response
         }
         // No callback
     }
 
     @Override
     public void undeploy(PaaSDeploymentContext paaSDeploymentContext, IPaaSCallback<?> iPaaSCallback) {
+        // TODO: Add force option in Marathon-client to always force undeployment
         try {
             Result result = marathonClient.deleteGroup(paaSDeploymentContext.getDeploymentPaaSId().toLowerCase());
             this.eventService.registerDeployment(result.getDeploymentId(), paaSDeploymentContext.getDeploymentId(), DeploymentStatus.UNDEPLOYMENT_IN_PROGRESS);
         } catch (MarathonException e) {
-            log.error("undeploy : " + e.getMessage());
-            e.printStackTrace();
+            log.error("Failure while undeploying - Got error code ["+e.getStatus()+"] with message: " + e.getMessage());
+            iPaaSCallback.onFailure(e);
         }
         iPaaSCallback.onSuccess(null);
-    }
-
-    @Override
-    public void scale(PaaSDeploymentContext paaSDeploymentContext, String s, int i, IPaaSCallback<?> iPaaSCallback) {
-
-    }
-
-    @Override
-    public void launchWorkflow(PaaSDeploymentContext paaSDeploymentContext, String s, Map<String, Object> map, IPaaSCallback<?> iPaaSCallback) {
-
     }
 
     @Override
@@ -113,7 +93,7 @@ public class MarathonOrchestrator implements IOrchestratorPlugin<MarathonConfig>
         try {
             DeploymentStatus status = Optional.of(marathonClient.getGroup(groupID)) // Retrieve the application group of this topology
                     .map(this::getTopologyDeploymentStatus).orElse(DeploymentStatus.UNDEPLOYED); // Check its status
-            // Finally, delegate to callback !
+            // Finally, delegate to callback
             iPaaSCallback.onSuccess(status);
         } catch (MarathonException e) {
             switch (e.getStatus()) {
@@ -198,61 +178,15 @@ public class MarathonOrchestrator implements IOrchestratorPlugin<MarathonConfig>
         Map<String, Map<String, InstanceInformation>> topologyInfo = Maps.newHashMap();
 
         final String groupID = paaSTopologyDeploymentContext.getDeploymentPaaSId().toLowerCase();
-        // For each app query Marathon for its tasks status
+        // For each app query Marathon for its tasks
         paaSTopologyDeploymentContext.getPaaSTopology().getNonNatives().forEach(paaSNodeTemplate -> {
             Map<String, InstanceInformation> instancesInfo = Maps.newHashMap();
             final String appID = groupID + "/" + paaSNodeTemplate.getId().toLowerCase();
 
             try {
+                // Marathon tasks are alien instances
                 final Collection<Task> tasks = marathonClient.getAppTasks(appID).getTasks();
-
-                // TODO: Should we add an "uninitialized" state when there is no task ?
-                tasks.forEach(task -> {
-                    final Map<String, String> runtimeProps = Maps.newHashMap();
-                    final Collection<String> ports = Collections2.transform(task.getPorts(), Functions.toStringFunction());
-
-                    // Outputs Marathon endpoints as host:port1,port2, ...
-                    runtimeProps.put("endpoint",
-                            "http://".concat(task.getHost().concat(":").concat(String.join(",", ports))));
-
-                    InstanceStatus instanceStatus;
-                    String state;
-
-                    // Leverage Mesos's TASK_STATUS
-                    switch (task.getState()) {
-                        case "TASK_RUNNING":
-                            // Retrieve health checks results - if no healthcheck then success
-                            state = "started";
-                            instanceStatus =
-                                Optional.ofNullable(task.getHealthCheckResults())
-                                    .map(healthCheckResults ->
-                                        healthCheckResults
-                                            .stream()
-                                            .findFirst()
-                                            .map(HealthCheckResult::isAlive)
-                                            .map(alive -> alive ? InstanceStatus.SUCCESS : InstanceStatus.FAILURE)
-                                        .orElse(InstanceStatus.PROCESSING)
-                                    ).orElse(InstanceStatus.SUCCESS);
-                            break;
-                        case "TASK_STARTING":
-                            state = "starting";
-                            instanceStatus = InstanceStatus.PROCESSING;
-                            break;
-                        case "TASK_STAGING":
-                            state = "creating";
-                            instanceStatus = InstanceStatus.PROCESSING;
-                            break;
-                        case "TASK_ERROR":
-                            state = "stopped";
-                            instanceStatus = InstanceStatus.FAILURE;
-                            break;
-                        default:
-                            state = "uninitialized"; // Unknown
-                            instanceStatus = InstanceStatus.PROCESSING;
-                    }
-
-                    instancesInfo.put(task.getId(), new InstanceInformation(state, instanceStatus, runtimeProps, runtimeProps, Maps.newHashMap()));
-                });
+                tasks.forEach(task -> instancesInfo.put(task.getId(), this.getInstanceInformation(task)));
                 topologyInfo.put(paaSNodeTemplate.getId(), instancesInfo);
             } catch (MarathonException e) {
                 switch (e.getStatus()) {
@@ -264,6 +198,58 @@ public class MarathonOrchestrator implements IOrchestratorPlugin<MarathonConfig>
             }
         });
         iPaaSCallback.onSuccess(topologyInfo);
+    }
+
+    /**
+     * Get instance information, eg. status and runtime properties, from a Marathon Task.
+     * @param task A Marathon Task
+     * @return An InstanceInformation
+     */
+    private InstanceInformation getInstanceInformation(Task task) {
+        final Map<String, String> runtimeProps = Maps.newHashMap();
+
+        // Outputs Marathon endpoints as host:port1,port2, ...
+        final Collection<String> ports = Collections2.transform(task.getPorts(), Functions.toStringFunction());
+        runtimeProps.put("endpoint",
+                "http://".concat(task.getHost().concat(":").concat(String.join(",", ports))));
+
+        InstanceStatus instanceStatus;
+        String state;
+
+        // Leverage Mesos's TASK_STATUS - TODO: add Mesos 1.0 task states
+        switch (task.getState()) {
+            case "TASK_RUNNING":
+                state = "started";
+                // Retrieve health checks results - if no healthcheck then assume healthy
+                instanceStatus =
+                    Optional.ofNullable(task.getHealthCheckResults())
+                        .map(healthCheckResults ->
+                            healthCheckResults
+                                .stream()
+                                .findFirst()
+                                .map(HealthCheckResult::isAlive)
+                                .map(alive -> alive ? InstanceStatus.SUCCESS : InstanceStatus.FAILURE)
+                            .orElse(InstanceStatus.PROCESSING)
+                        ).orElse(InstanceStatus.SUCCESS);
+                break;
+            case "TASK_STARTING":
+                state = "starting";
+                instanceStatus = InstanceStatus.PROCESSING;
+                break;
+            case "TASK_STAGING":
+                state = "creating";
+                instanceStatus = InstanceStatus.PROCESSING;
+                break;
+            case "TASK_ERROR":
+                state = "stopped";
+                instanceStatus = InstanceStatus.FAILURE;
+                break;
+            default:
+                state = "uninitialized"; // Unknown
+                instanceStatus = InstanceStatus.PROCESSING;
+        }
+
+        return new InstanceInformation(state, instanceStatus, runtimeProps, runtimeProps, Maps.newHashMap());
     }
 
     @Override
@@ -278,12 +264,32 @@ public class MarathonOrchestrator implements IOrchestratorPlugin<MarathonConfig>
     }
 
     @Override
+    public ILocationConfiguratorPlugin getConfigurator(String locationType) {
+        return marathonLocationConfiguratorFactory.newInstance(locationType);
+    }
+
+    @Override
+    public List<PluginArchive> pluginArchives() {
+        return Lists.newArrayList();
+    }
+
+    @Override
     public void switchMaintenanceMode(PaaSDeploymentContext paaSDeploymentContext, boolean b) throws MaintenanceModeException {
 
     }
 
     @Override
     public void switchInstanceMaintenanceMode(PaaSDeploymentContext paaSDeploymentContext, String s, String s1, boolean b) throws MaintenanceModeException {
+
+    }
+
+    @Override
+    public void scale(PaaSDeploymentContext paaSDeploymentContext, String s, int i, IPaaSCallback<?> iPaaSCallback) {
+
+    }
+
+    @Override
+    public void launchWorkflow(PaaSDeploymentContext paaSDeploymentContext, String s, Map<String, Object> map, IPaaSCallback<?> iPaaSCallback) {
 
     }
 }
