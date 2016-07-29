@@ -22,7 +22,7 @@
         <dependency>
             <groupId>com.mesosphere</groupId>
             <artifactId>marathon-client</artifactId>
-            <version>0.2.0</version>
+            <version>0.2.1</version>
         </dependency>
         <dependency>
             <groupId>org.glassfish.jersey.core</groupId>
@@ -64,12 +64,28 @@
             <groupId>org.springframework</groupId>
             <artifactId>spring-test</artifactId>
         </dependency>
+        <dependency>
+            <groupId>com.google.code.gson</groupId>
+            <artifactId>gson</artifactId>
+            <version>2.7</version>
+        </dependency>
     </dependencies>
 
     <repositories>
         <repository>
-            <id>downloads.mesosphere.com</id>
-            <url>https://downloads.mesosphere.com/maven/</url>
+            <id>repo.opensource.fastconnect.org</id>
+            <name>FC Opensource</name>
+            <url>https://fastconnect.org/maven/content/repositories/opensource</url>
+        </repository>
+        <repository>
+            <id>repo.internal.fastconnect.org</id>
+            <name>FC Internal</name>
+            <url>https://fastconnect.org/maven/content/repositories/fastconnect</url>
+        </repository>
+        <repository>
+            <id>repo.third-party.fastconnect.org</id>
+            <name>FC Third Party</name>
+            <url>https://fastconnect.org/maven/content/repositories/third-party</url>
         </repository>
     </repositories>
 
