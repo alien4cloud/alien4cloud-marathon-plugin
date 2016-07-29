@@ -159,7 +159,7 @@ public class MarathonOrchestrator implements IOrchestratorPlugin<MarathonConfig>
         return deployment.getCurrentActions()
                 .stream()
                 .noneMatch(action -> // All actions but StopApplication reflect a deployment in progress
-                        action.getAction().matches("^StopApplication$")
+                        action.getType().matches("^StopApplication$")
                 ) ? DeploymentStatus.DEPLOYMENT_IN_PROGRESS : DeploymentStatus.UNDEPLOYMENT_IN_PROGRESS;
     }
 
