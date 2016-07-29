@@ -9,14 +9,17 @@ import java.util.stream.Collectors;
 import alien4cloud.paas.model.AbstractMonitorEvent;
 
 /**
+ * A cache to store events from Marathon.
+ * The cache is periodically cleaned.
+ *
  * @author Adrian Fraisse
  */
 class EventCache {
 
     private long lastAccessed;
-    private List<AbstractMonitorEvent> events = Collections.synchronizedList(new ArrayList<>());
+    private final List<AbstractMonitorEvent> events = Collections.synchronizedList(new ArrayList<>());
 
-    public EventCache(final long cacheCleanupInterval) {
+    EventCache(final long cacheCleanupInterval) {
 
         if (cacheCleanupInterval > 0) Executors.newSingleThreadExecutor().submit(() -> {
             while (true) {
@@ -29,13 +32,15 @@ class EventCache {
     // TODO: leverage the fact that the event list is always sorted
     private void cleanUp() {
         synchronized (events) {
-            events = events.stream()
-                        .filter(event -> event.getDate() < lastAccessed)
-                        .collect(Collectors.toList());
+            final List<AbstractMonitorEvent> collect = events.stream()
+                    .filter(event -> event.getDate() < lastAccessed)
+                    .collect(Collectors.toList());
+            events.clear();
+            events.addAll(collect);
         }
     }
 
-    protected List<AbstractMonitorEvent> getEventsSince(long date, int batchSize) {
+    List<AbstractMonitorEvent> getEventsSince(long date, int batchSize) {
         synchronized (events) {
             List<AbstractMonitorEvent> subList =
                     events.stream().filter(event -> event.getDate() > date).limit(batchSize).collect(Collectors.toList());
@@ -44,7 +49,7 @@ class EventCache {
         }
     }
 
-    protected void pushEvent(AbstractMonitorEvent event) {
+    void pushEvent(AbstractMonitorEvent event) {
         synchronized (events) {
             events.add(event);
         }
