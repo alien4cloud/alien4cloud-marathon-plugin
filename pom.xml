@@ -9,9 +9,6 @@
     <artifactId>alien4cloud-marathon-plugin</artifactId>
     <name>Alien 4 Cloud Marathon plugin</name>
     <description>This project is a plugin to use Marathon / Mesos as an orchestrator for Alien 4 Cloud.</description>
-    <properties>
-        <java.version>1.8</java.version>
-    </properties>
     <dependencies>
         <dependency>
             <groupId>alien4cloud</groupId>
