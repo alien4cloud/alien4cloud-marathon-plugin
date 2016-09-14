@@ -7,6 +7,6 @@ import org.springframework.context.annotation.Configuration;
  * @author Adrian Fraisse
  */
 @Configuration
-@ComponentScan("alien4cloud.plugin.marathon")
+@ComponentScan(basePackages = "alien4cloud.plugin.marathon")
 public class PluginConfiguration {
 }
