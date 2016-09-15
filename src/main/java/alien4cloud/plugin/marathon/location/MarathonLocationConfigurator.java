@@ -1,15 +1,13 @@
 package alien4cloud.plugin.marathon.location;
 
-import alien4cloud.deployment.matching.services.nodes.MatchingConfigurationsParser;
 import alien4cloud.model.deployment.matching.MatchingConfiguration;
 import alien4cloud.model.orchestrators.locations.LocationResourceTemplate;
-import alien4cloud.orchestrators.locations.services.LocationResourceGeneratorService;
 import alien4cloud.orchestrators.plugin.ILocationConfiguratorPlugin;
 import alien4cloud.orchestrators.plugin.ILocationResourceAccessor;
 import alien4cloud.orchestrators.plugin.model.PluginArchive;
 import alien4cloud.paas.exception.PluginParseException;
 import alien4cloud.plugin.model.ManagedPlugin;
-import alien4cloud.tosca.ArchiveParser;
+import org.alien4cloud.tosca.catalog.ArchiveParser;
 import alien4cloud.tosca.model.ArchiveRoot;
 import alien4cloud.tosca.parser.ParsingException;
 import alien4cloud.tosca.parser.ParsingResult;
