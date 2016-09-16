@@ -3,8 +3,10 @@ package alien4cloud.plugin.marathon;
 import java.util.Map;
 
 import javax.annotation.Resource;
+import javax.inject.Inject;
 
 import org.springframework.beans.factory.BeanFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import com.google.common.collect.Maps;
@@ -21,7 +23,7 @@ import alien4cloud.plugin.marathon.config.MarathonConfig;
 @Component("marathon-orchestrator-factory")
 public class MarathonOrchestratorFactory implements IOrchestratorPluginFactory<MarathonOrchestrator, MarathonConfig>{
 
-    @Resource
+    @Autowired
     private BeanFactory beanFactory;
 
     @Override
