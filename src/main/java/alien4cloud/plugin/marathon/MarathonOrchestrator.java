@@ -194,7 +194,6 @@ public class MarathonOrchestrator implements IOrchestratorPlugin<MarathonConfig>
                     instancesInfo.put(task.getId(), instanceInformation);
                 });
 
-//                paaSTopologyDeploymentContext.getPaaSTopology().getVolumes().stream().filter(volumeTemplate -> volumeTemplate.getRelationshipTemplate())
                 topologyInfo.put(paaSNodeTemplate.getId(), instancesInfo);
             } catch (MarathonException e) {
                 switch (e.getStatus()) {
