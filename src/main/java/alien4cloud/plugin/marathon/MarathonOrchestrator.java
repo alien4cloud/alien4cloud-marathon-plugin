@@ -1,5 +1,8 @@
 package alien4cloud.plugin.marathon;
 
+import static com.google.common.collect.Maps.newHashMap;
+import static java.util.Collections.emptyMap;
+
 import java.util.*;
 
 import javax.inject.Inject;
@@ -11,7 +14,6 @@ import org.springframework.stereotype.Component;
 import com.google.common.base.Functions;
 import com.google.common.collect.Collections2;
 import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 
 import alien4cloud.orchestrators.plugin.ILocationConfiguratorPlugin;
 import alien4cloud.orchestrators.plugin.IOrchestratorPlugin;
@@ -25,6 +27,7 @@ import alien4cloud.plugin.marathon.config.MarathonConfig;
 import alien4cloud.plugin.marathon.location.MarathonLocationConfiguratorFactory;
 import alien4cloud.plugin.marathon.service.EventService;
 import alien4cloud.plugin.marathon.service.MarathonMappingService;
+import alien4cloud.utils.MapUtil;
 import lombok.extern.slf4j.Slf4j;
 import mesosphere.marathon.client.Marathon;
 import mesosphere.marathon.client.MarathonClient;
@@ -175,18 +178,23 @@ public class MarathonOrchestrator implements IOrchestratorPlugin<MarathonConfig>
 
     @Override
     public void getInstancesInformation(PaaSTopologyDeploymentContext paaSTopologyDeploymentContext, IPaaSCallback<Map<String, Map<String, InstanceInformation>>> iPaaSCallback) {
-        Map<String, Map<String, InstanceInformation>> topologyInfo = Maps.newHashMap();
+        Map<String, Map<String, InstanceInformation>> topologyInfo = newHashMap();
 
         final String groupID = paaSTopologyDeploymentContext.getDeploymentPaaSId().toLowerCase();
         // For each app query Marathon for its tasks
         paaSTopologyDeploymentContext.getPaaSTopology().getNonNatives().forEach(paaSNodeTemplate -> {
-            Map<String, InstanceInformation> instancesInfo = Maps.newHashMap();
+            Map<String, InstanceInformation> instancesInfo = newHashMap();
             final String appID = groupID + "/" + paaSNodeTemplate.getId().toLowerCase();
 
             try {
                 // Marathon tasks are alien instances
                 final Collection<Task> tasks = marathonClient.getAppTasks(appID).getTasks();
-                tasks.forEach(task -> instancesInfo.put(task.getId(), this.getInstanceInformation(task)));
+                tasks.forEach(task -> {
+                    final InstanceInformation instanceInformation = this.getInstanceInformation(task);
+                    instancesInfo.put(task.getId(), instanceInformation);
+                });
+
+//                paaSTopologyDeploymentContext.getPaaSTopology().getVolumes().stream().filter(volumeTemplate -> volumeTemplate.getRelationshipTemplate())
                 topologyInfo.put(paaSNodeTemplate.getId(), instancesInfo);
             } catch (MarathonException e) {
                 switch (e.getStatus()) {
@@ -197,6 +205,21 @@ public class MarathonOrchestrator implements IOrchestratorPlugin<MarathonConfig>
                 }
             }
         });
+        paaSTopologyDeploymentContext.getPaaSTopology().getVolumes().forEach(volumeTemplate-> {
+            // Volumes have the same state than their app
+            final InstanceInformation volumeInstanceInfo =
+                volumeTemplate.getRelationshipTemplates().stream()
+                    .filter(paaSRelationshipTemplate -> "alien.relationships.MountDockerVolume".equals(paaSRelationshipTemplate.getTemplate().getType()))
+                    .findFirst() // Retrieve the node this volume is attached to
+                    .map(paaSRelationshipTemplate -> paaSRelationshipTemplate.getTemplate().getTarget())
+                    .map(topologyInfo::get)  // Retrieve the InstanceInformation map of the node the volume is attached to
+                    .flatMap(instancesInfoMap -> // Use any instance of the node as base for the volume's InstanceInformation
+                            instancesInfoMap.entrySet().stream().findAny().map(instanceInfoEntry ->
+                                    new InstanceInformation(instanceInfoEntry.getValue().getState(), instanceInfoEntry.getValue().getInstanceStatus(), emptyMap(), emptyMap(), emptyMap())
+                            )
+                    ).orElse(new InstanceInformation("uninitialized", InstanceStatus.PROCESSING, emptyMap(), emptyMap(), emptyMap()));
+            topologyInfo.put(volumeTemplate.getId(), MapUtil.newHashMap(new String[] {volumeTemplate.getId()}, new InstanceInformation[] {volumeInstanceInfo}));
+        });
         iPaaSCallback.onSuccess(topologyInfo);
     }
 
@@ -206,7 +229,7 @@ public class MarathonOrchestrator implements IOrchestratorPlugin<MarathonConfig>
      * @return An InstanceInformation
      */
     private InstanceInformation getInstanceInformation(Task task) {
-        final Map<String, String> runtimeProps = Maps.newHashMap();
+        final Map<String, String> runtimeProps = newHashMap();
 
         // Outputs Marathon endpoints as host:port1,port2, ...
         final Collection<String> ports = Collections2.transform(task.getPorts(), Functions.toStringFunction());
@@ -249,7 +272,7 @@ public class MarathonOrchestrator implements IOrchestratorPlugin<MarathonConfig>
                 instanceStatus = InstanceStatus.PROCESSING;
         }
 
-        return new InstanceInformation(state, instanceStatus, runtimeProps, runtimeProps, Maps.newHashMap());
+        return new InstanceInformation(state, instanceStatus, runtimeProps, runtimeProps, newHashMap());
     }
 
     @Override
