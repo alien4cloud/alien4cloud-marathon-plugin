@@ -58,7 +58,7 @@ public class MarathonMappingService {
     public Group buildGroupDefinition(PaaSTopologyDeploymentContext paaSTopologyDeploymentContext) {
         // Setup parent group
         Group parentGrp = new Group();
-        // Group id == pass topology deployment id
+        // Group id == pass topology deployment id.
         parentGrp.setId(paaSTopologyDeploymentContext.getDeploymentPaaSId().toLowerCase());
         parentGrp.setApps(Lists.newArrayList());
 
@@ -91,6 +91,11 @@ public class MarathonMappingService {
         App appDef = new App();
         appDef.setInstances(Optional.ofNullable(paaSNodeTemplate.getScalingPolicy()).orElse(ScalingPolicy.NOT_SCALABLE_POLICY).getInitialInstances());
         appDef.setId(paaSNodeTemplate.getId().toLowerCase());
+        // Only accepted special chars in app ids are hyphens and dots
+        if (!appDef.getId().matches("^(([a-z0-9]|[a-z0-9][a-z0-9\\-]*[a-z0-9])\\.)*([a-z0-9]|[a-z0-9][a-z0-9\\-]*[a-z0-9])|(\\.|\\.\\.)$")) {
+            throw new IllegalArgumentException("Node ID is invalid. Allowed: lowercase letters, digits, hyphens, \".\", \"..\"");
+        }
+
         Container container = new Container();
         Docker docker = new Docker();
         container.setType("DOCKER");
@@ -113,10 +118,8 @@ public class MarathonMappingService {
         // TODO: Rethink how we deal with images to get rid of the .dockerimg extension
         final ImplementationArtifact implementationArtifact = createOperation.getImplementationArtifact();
         if (implementationArtifact != null) {
-            final String artifactRef = implementationArtifact.getArtifactRef();
-            if (artifactRef.endsWith(".dockerimg")) docker.setImage(artifactRef.split(Pattern.quote(".dockerimg"))[0]); // TODO use a regex instead
-            else throw new NotSupportedException("Create implementation artifact should be in the form <hub/repo/image:version.dockerimg>");
-        } else throw new NotImplementedException("Create implementation artifact should contain the image");
+            docker.setImage(implementationArtifact.getArtifactRef());
+        } else throw new NotImplementedException("Create implementation artifact should specify the image");
 
         /**
          * RELATIONSHIPS
