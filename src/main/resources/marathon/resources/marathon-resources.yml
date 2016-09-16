@@ -8,7 +8,7 @@ description: "Defines resources for marathon"
 
 imports:
   - tosca-normative-types:1.0.0-SNAPSHOT
-  - docker-types:1.0.0-SNAPSHOT
+  - docker-types:1.1.0-SNAPSHOT
 
 node_types:
   alien.nodes.marathon.Container:
