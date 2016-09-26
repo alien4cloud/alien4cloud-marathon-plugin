@@ -1,10 +1,10 @@
 package alien4cloud.plugin.marathon.service;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 import org.apache.commons.lang.NotImplementedException;
@@ -14,12 +14,14 @@ import org.springframework.stereotype.Service;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
+import alien4cloud.exception.InvalidArgumentException;
 import alien4cloud.model.components.*;
 import alien4cloud.model.topology.NodeTemplate;
+import alien4cloud.model.topology.RelationshipTemplate;
 import alien4cloud.model.topology.ScalingPolicy;
-import alien4cloud.paas.exception.NotSupportedException;
 import alien4cloud.paas.function.FunctionEvaluator;
 import alien4cloud.paas.model.PaaSNodeTemplate;
+import alien4cloud.paas.model.PaaSRelationshipTemplate;
 import alien4cloud.paas.model.PaaSTopology;
 import alien4cloud.paas.model.PaaSTopologyDeploymentContext;
 import lombok.extern.log4j.Log4j;
@@ -62,12 +64,23 @@ public class MarathonMappingService {
         parentGrp.setId(paaSTopologyDeploymentContext.getDeploymentPaaSId().toLowerCase());
         parentGrp.setApps(Lists.newArrayList());
 
-        // Marathon topologies are only non-natives nodes (eg. apps)
-        final List<PaaSNodeTemplate> paaSNodeTemplates = paaSTopologyDeploymentContext.getPaaSTopology().getNonNatives();
-
-        paaSNodeTemplates.forEach(node ->
-            parentGrp.getApps().add(buildAppDefinition(node, paaSTopologyDeploymentContext.getPaaSTopology()))
-        );
+        // Marathon topologies contain only non-natives nodes (eg. apps) and volumes.
+        // Each non-native node (and eventually, its attached volumes) are converted to a Marathon App
+        final List<PaaSNodeTemplate> nonNatives = paaSTopologyDeploymentContext.getPaaSTopology().getNonNatives();
+        final List<PaaSNodeTemplate> volumes = paaSTopologyDeploymentContext.getPaaSTopology().getVolumes();
+        nonNatives.forEach(node -> {
+            // Find volumes attached to the node
+            final List<PaaSNodeTemplate> attachedVolumes =
+                volumes.stream().filter(paaSNodeTemplate ->
+                    paaSNodeTemplate.getRelationshipTemplates().stream()
+                        .filter(paaSRelationshipTemplate -> paaSRelationshipTemplate.instanceOf("alien.relationships.MountDockerVolume"))
+                        .findFirst()
+                        .map(paaSRelationshipTemplate -> paaSRelationshipTemplate.getTemplate().getTarget()).orElse("")
+                        .equals(node.getId())
+                ).collect(Collectors.toList());
+            // Build the app definition and add it to the group
+            parentGrp.getApps().add(buildAppDefinition(node, paaSTopologyDeploymentContext.getPaaSTopology(), attachedVolumes));
+        });
 
         // Clean the port endpoints map
         mapPortEndpoints.clear();
@@ -82,7 +95,7 @@ public class MarathonMappingService {
      * @param paaSTopology the topology the node belongs to
      * @return a Marathon App definition
      */
-    private App buildAppDefinition(PaaSNodeTemplate paaSNodeTemplate, PaaSTopology paaSTopology) {
+    private App buildAppDefinition(PaaSNodeTemplate paaSNodeTemplate, PaaSTopology paaSTopology, List<PaaSNodeTemplate> volumeNodeTemplates) {
         final NodeTemplate nodeTemplate = paaSNodeTemplate.getTemplate();
 
         /**
@@ -115,11 +128,42 @@ public class MarathonMappingService {
                 .get("create");
 
         // Retrieve docker image from the Create operation implementation artifact
-        // TODO: Rethink how we deal with images to get rid of the .dockerimg extension
         final ImplementationArtifact implementationArtifact = createOperation.getImplementationArtifact();
-        if (implementationArtifact != null) {
+        if (implementationArtifact != null)
             docker.setImage(implementationArtifact.getArtifactRef());
-        } else throw new NotImplementedException("Create implementation artifact should specify the image");
+        else throw new NotImplementedException("Create implementation artifact should specify the image");
+
+        /**
+         * External persistent Docker volumes using the RexRay driver
+         */
+        container.setVolumes(new ArrayList<>());
+        volumeNodeTemplates.forEach(volumeTemplate -> {
+            final Map<String, AbstractPropertyValue> volumeTemplateProperties = volumeTemplate.getTemplate().getProperties();
+            // Build volume definition
+            final Optional<String> volumeName = Optional.ofNullable(((ScalarPropertyValue) volumeTemplateProperties.get("volume_name")).getValue());
+            final Optional<String> volumeSize = Optional.ofNullable(((ScalarPropertyValue) volumeTemplateProperties.get("size")).getValue());
+
+            // Find containerPath - a property of the relationship
+            final String containerPath =
+                volumeTemplate.getRelationshipTemplates().stream()
+                    .filter(paaSRelationshipTemplate -> paaSRelationshipTemplate.instanceOf("alien.relationships.MountDockerVolume"))
+                    .findFirst()
+                    .map(PaaSRelationshipTemplate::getTemplate)
+                    .map(RelationshipTemplate::getProperties)
+                    .map(relationshipProps -> ((ScalarPropertyValue) relationshipProps.get("container_path")))
+                    .map(ScalarPropertyValue::getValue)
+                    .orElseThrow(() -> new InvalidArgumentException("A container path must be provided to mount a volume to a container."));
+
+            // For now only ExternalVolumes are supported
+            final ExternalVolume externalVolume = new ExternalVolume();
+            externalVolume.setDriver("rexray");
+            externalVolume.setName(volumeName.orElse("FIXME")); //FIXME
+            // TODO size
+            externalVolume.setContainerPath(containerPath);
+            externalVolume.setMode("RW");
+
+            container.getVolumes().add(externalVolume);
+        });
 
         /**
          * RELATIONSHIPS
@@ -256,6 +300,7 @@ public class MarathonMappingService {
                     stream().map(String::valueOf).collect(Collectors.toList())
             );
         }
+
 
         /* Create a basic TCP health check */
         HealthCheck healthCheck = new HealthCheck();
