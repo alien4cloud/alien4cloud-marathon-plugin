@@ -158,7 +158,7 @@ public class MarathonMappingService {
             final ExternalVolume externalVolume = new ExternalVolume();
             externalVolume.setDriver("rexray");
             externalVolume.setName(volumeName.orElse("FIXME")); //FIXME
-            // TODO size
+            externalVolume.setSize(Integer.valueOf(volumeSize.orElse("1")));
             externalVolume.setContainerPath(containerPath);
             externalVolume.setMode("RW");
 
