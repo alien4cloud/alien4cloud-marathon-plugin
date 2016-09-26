@@ -38,6 +38,10 @@ You can now define and deploy your own custom TOSCA docker node types using the 
 
 We also made a Youtube video for this. It's [here](https://www.youtube.com/watch?v=kXrNanNMkhU).
 
+### External Storage support
+
+We added experimental support of the external storage feature from Marathon. We currently use RexRay as a Docker Volume Driver. Please note that while RexRay is able to dynamically provision volumes on your provider, those will NOT be cleaned up upon undeployment.
+
 ## Known limitations and caveats
 
 This plugin is still work-in-progress. We decided to release it to the world early in hope to get traction and feedback from the community. Please make use of the Issues section !
