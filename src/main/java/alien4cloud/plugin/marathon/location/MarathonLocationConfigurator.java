@@ -1,5 +1,6 @@
 package alien4cloud.plugin.marathon.location;
 
+import alien4cloud.common.AlienConstants;
 import alien4cloud.model.deployment.matching.MatchingConfiguration;
 import alien4cloud.model.orchestrators.locations.LocationResourceTemplate;
 import alien4cloud.orchestrators.plugin.ILocationConfiguratorPlugin;
@@ -70,7 +71,7 @@ public class MarathonLocationConfigurator implements ILocationConfiguratorPlugin
     private void addToArchive(List<PluginArchive> archives, String path) throws ParsingException {
         Path archivePath = selfContext.getPluginPath().resolve(path);
         // Parse the archives
-        ParsingResult<ArchiveRoot> result = archiveParser.parseDir(archivePath);
+        ParsingResult<ArchiveRoot> result = archiveParser.parseDir(archivePath, AlienConstants.GLOBAL_WORKSPACE_ID);
         PluginArchive pluginArchive = new PluginArchive(result.getResult(), archivePath);
         archives.add(pluginArchive);
     }
