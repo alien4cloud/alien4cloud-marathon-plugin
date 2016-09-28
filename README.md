@@ -14,8 +14,8 @@ The first thing you'll want to do is setting up a Marathon+Mesos cluster on the 
 - First, upload the following CSARs into Alien:
  - [docker-engine](https://github.com/alien4cloud/samples/tree/master/docker-engine)
  - [mesos-types](https://github.com/alien4cloud/mesos-tosca-blueprints)
- - [docker-types](https://github.com/alien4cloud/docker-tosca-types)
-- Then, create your own custom Mesos TOSCA composition or use a convenient template [we made for you](https://github.com/alien4cloud/mesos-tosca-blueprints/blob/master/alien-templates/marathon-template.yml).
+ - [docker-types](https://github.com/alien4cloud/docker-tosca-types/tree/master/docker-types)
+- Then, create your own custom Mesos TOSCA composition or use a convenient template [we made for you](https://github.com/alien4cloud/mesos-tosca-blueprints/blob/master/topology-marathon-rexray/marathon-rexray-template.yml).
 **Note** that if your IaaS doesn't automatically assigns *public ips* you'll have to add a *public network* to your template.
 - Finally, setup the Cloudify orchestrator on the Cloud provider and hit deploy.
 
@@ -23,17 +23,17 @@ If you're more of a Youtube person, you can also follow our demonstrxation [vide
 
 ### Install the Marathon orchestrator
 
-- Download the plugin from our Maven repository [here](https://fastconnect.org/maven/content/repositories/opensource/alien4cloud/alien4cloud-marathon-plugin/1.3.0-SM2/alien4cloud-marathon-plugin-1.3.0-SM2.zip), or clone this repository and build it yourself using `mvn clean install`.
+- Download the plugin from our Maven repository [here](https://fastconnect.org/maven/content/repositories/opensource/alien4cloud/alien4cloud-marathon-plugin/1.3.0-SM4/alien4cloud-marathon-plugin-1.3.0-SM4.zip), or clone this repository and build it yourself using `mvn clean install`.
 - Upload the orchestrator archive **alien4cloud-marathon-plugin-${VERSION}.zip** into alien using the plugin view.
 - Set up the orchestrator by simply giving Marathon's URL.
 Create an empty location - you don't need to create any resources for now.
 
 ### Try out the Nodecellar demo
 
-You can now define and deploy your own custom TOSCA docker node types using the [docker-types](https://github.com/alien4cloud/docker-tosca-types) or try our Nodecellar demo app.
+You can now define and deploy your own custom TOSCA docker node types using the [docker-types](https://github.com/alien4cloud/docker-tosca-types/tree/master/docker-types) or try our Nodecellar demo app.
 
-- Upload Nodecellar [nodes-types](https://github.com/alien4cloud/docker-tosca-types/blob/master/examples/nodecellar_types_sample.yml), which consists of a Docker container with MongoDB and a another Docker container with Node.js and the Nodecellar app, into Alien.
-- Create your own application topology or start from our [template](https://github.com/alien4cloud/docker-tosca-types/examples/nodecellar_template.yml).
+- Upload Nodecellar [nodes-types](https://github.com/alien4cloud/docker-tosca-types/blob/master/nodecellar-sample-types/nodecellar-types.yml), which consists of a Docker container with MongoDB and a another Docker container with Node.js and the Nodecellar app, into Alien.
+- Create your own application topology or start from our [template](https://github.com/alien4cloud/docker-tosca-types/blob/master/topology-nodecellar-sample/nodecellar-template.yml).
 - Hit deploy and enjoy the fun !
 
 We also made a Youtube video for this. It's [here](https://www.youtube.com/watch?v=kXrNanNMkhU).
@@ -47,7 +47,7 @@ We added experimental support of the external storage feature from Marathon. We 
 This plugin is still work-in-progress. We decided to release it to the world early in hope to get traction and feedback from the community. Please make use of the Issues section !
 
 - Currently, we only support running Docker containers in Marathon.
-- The plugin **will not** operate if you omit to deploy MesosDNS and MarathonLB (with the haproxy_group *internal*) on your cluster. If you're new to Mesos+Marathon, consider using our [template]((https://github.com/alien4cloud/mesos-tosca-blueprints/blob/master/alien-templates/marathon-template.yml)).
+- The plugin **will not** operate if you omit to deploy MesosDNS and MarathonLB (with the haproxy_group *internal*) on your cluster. If you're new to Mesos+Marathon, consider using our [template]((https://github.com/alien4cloud/mesos-tosca-blueprints/blob/master/topology-marathon-rexray/marathon-rexray-template.yml)).
 - Persistent volumes are still WIP in Marathon. We plan to implement them in the near future.
 - It is not yet possible to scale a Docker container in Alien. This should be addressed soon.
 - We did not exactly follow the TOSCA model for Docker containers as it is still incubating. More on this [here](https://github.com/alien4cloud/docker-tosca-types).
