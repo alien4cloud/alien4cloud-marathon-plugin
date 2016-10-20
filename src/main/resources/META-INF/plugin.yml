@@ -9,5 +9,5 @@ component_descriptors:
     name: Marathon Orchestrator Factory
     description: >
       Orchestrator Factory that instanciate the marathon orchestrator.
-  - bean_name: docker-image-resolver
-    name: Docker Image Resolver
+#  - bean_name: docker-image-resolver
+#    name: Docker Image Resolver
