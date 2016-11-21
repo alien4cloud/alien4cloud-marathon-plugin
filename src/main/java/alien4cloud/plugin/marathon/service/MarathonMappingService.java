@@ -162,10 +162,13 @@ public class MarathonMappingService {
             // For now only ExternalVolumes are supported
             final ExternalVolume externalVolume = new ExternalVolume();
             externalVolume.setDriver("rexray");
-            externalVolume.setName(volumeName.orElse("FIXME")); // FIXME
-            externalVolume.setSize(Integer.valueOf(volumeSize.orElse("1")));
+            externalVolume.setName(volumeName.orElse("FIXME")); // FIXME: Should persist and manage volume names
             externalVolume.setContainerPath(containerPath);
             externalVolume.setMode("RW");
+
+            // Volume size is not supported with Docker containers ATM
+            if ("MESOS".equals(container.getType()))
+                externalVolume.setSize(Integer.valueOf(volumeSize.filter(s -> s.matches("^[1-9][0-9]*\\s(GiB|GB)$")).map(s -> s.split("\\s")[0]).orElse("1")));
 
             container.getVolumes().add(externalVolume);
         });
