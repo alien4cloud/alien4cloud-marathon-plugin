@@ -1,6 +1,18 @@
 package alien4cloud.plugin.marathon.location;
 
-import alien4cloud.common.AlienConstants;
+import java.nio.file.Path;
+import java.util.List;
+import java.util.Map;
+
+import javax.inject.Inject;
+
+import org.alien4cloud.tosca.catalog.ArchiveParser;
+import org.springframework.context.annotation.Scope;
+import org.springframework.stereotype.Component;
+
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+
 import alien4cloud.model.deployment.matching.MatchingConfiguration;
 import alien4cloud.model.orchestrators.locations.LocationResourceTemplate;
 import alien4cloud.orchestrators.plugin.ILocationConfiguratorPlugin;
@@ -8,20 +20,11 @@ import alien4cloud.orchestrators.plugin.ILocationResourceAccessor;
 import alien4cloud.orchestrators.plugin.model.PluginArchive;
 import alien4cloud.paas.exception.PluginParseException;
 import alien4cloud.plugin.model.ManagedPlugin;
-import org.alien4cloud.tosca.catalog.ArchiveParser;
 import alien4cloud.tosca.model.ArchiveRoot;
 import alien4cloud.tosca.parser.ParsingException;
 import alien4cloud.tosca.parser.ParsingResult;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
+import alien4cloud.utils.AlienConstants;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.context.annotation.Scope;
-import org.springframework.stereotype.Component;
-
-import javax.inject.Inject;
-import java.nio.file.Path;
-import java.util.List;
-import java.util.Map;
 
 /**
  * @author Adrian Fraisse
