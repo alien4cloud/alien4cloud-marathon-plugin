@@ -2,9 +2,7 @@ package alien4cloud.plugin.marathon.service;
 
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
-import java.util.Date;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 import javax.ws.rs.client.Client;
 import javax.ws.rs.client.ClientBuilder;
@@ -13,18 +11,17 @@ import javax.ws.rs.client.WebTarget;
 import org.glassfish.jersey.media.sse.EventListener;
 import org.glassfish.jersey.media.sse.EventSource;
 import org.glassfish.jersey.media.sse.SseFeature;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
 
-import com.google.common.collect.Maps;
-
-import alien4cloud.paas.model.AbstractMonitorEvent;
-import alien4cloud.paas.model.DeploymentStatus;
-import alien4cloud.paas.model.PaaSDeploymentStatusMonitorEvent;
+import alien4cloud.paas.model.*;
 import alien4cloud.plugin.marathon.service.model.events.deployments.DeploymentFailedEvent;
 import alien4cloud.plugin.marathon.service.model.events.deployments.DeploymentInfoEvent;
 import alien4cloud.plugin.marathon.service.model.events.deployments.DeploymentSuccessEvent;
 import alien4cloud.plugin.marathon.service.model.events.status.HealthStatusChangedEvent;
 import alien4cloud.plugin.marathon.service.model.events.status.StatusUpdateEvent;
 import alien4cloud.plugin.marathon.service.model.events.status.UnhealthyTaskKillEvent;
+import alien4cloud.plugin.marathon.service.model.mapping.AlienDeploymentMapping;
 import lombok.extern.log4j.Log4j;
 import mesosphere.marathon.client.utils.ModelUtils;
 
@@ -33,27 +30,31 @@ import mesosphere.marathon.client.utils.ModelUtils;
  *
  * @author Adrian Fraisse
  */
+@Service
 @Log4j
 public class EventService {
 
-    /**
-     * A cache to store events
-     */
-    private EventCache eventCache;
+    @Autowired
+    private MarathonMappingService mappingService;
 
     /**
-     * Map Alien deployment ids to marathon deployment ids
+     * Event queue
      */
-    private final Map<String, AlienDeploymentInfo> deploymentMap = Maps.newConcurrentMap();
+    private final Queue<AbstractMonitorEvent> eventQueue;
 
     /**
-     * Date format of Marathon's events. FIXME: deal with the 2 hours offset
+     * Date format of Marathon's events.
      */
-    private final SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'");
+    private final SimpleDateFormat dateFormat;
 
-    public EventService(String apiURL) {
-        this.eventCache = new EventCache(15);
+    EventService() {
+        // The event cache
+        eventQueue = new LinkedList<>();
+        dateFormat = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'");
+        dateFormat.setTimeZone(TimeZone.getTimeZone("UTC"));
+    }
 
+    public void subscribe(String apiURL) {
         // Setup an Event listener connected to Marathon's EventBus
         Client client = ClientBuilder.newBuilder().register(SseFeature.class).build();
         WebTarget target = client.target(apiURL.concat("/events"));
@@ -78,36 +79,108 @@ public class EventService {
      * @param data The JSON data associated with the event
      */
     private void parseMarathonEvent(String name, String data) {
-
+        log.warn("[Event from marathon]: " + name + " : " + data);
         switch (name) {
             case "deployment_info":
-                this.eventCache.pushEvent(parseDeploymentInfoEvent(data));
+                eventQueue.add(parseDeploymentInfoEvent(data));
                 break;
             case "deployment_success":
-                this.eventCache.pushEvent(parseDeploymentSuccessEvent(data));
+                eventQueue.add(parseDeploymentSuccessEvent(data));
                 break;
             case "deployment_failed":
-                this.eventCache.pushEvent(parseDeploymentFailedEvent(data));
+                eventQueue.add(parseDeploymentFailedEvent(data));
                 break;
             case "status_update_event":
-                // TODO: Implement status update events
-                final StatusUpdateEvent statusUpdateEvent = ModelUtils.GSON.fromJson(data, StatusUpdateEvent.class);
-                log.info("[Event from marathon]: " + statusUpdateEvent.toString());
+                eventQueue.add(parseStatusUpdateEvent(ModelUtils.GSON.fromJson(data, StatusUpdateEvent.class)));
                 break;
             case "health_status_changed_event":
-                // TODO: Implement health status changed events
-                final HealthStatusChangedEvent healthStatusChangedEvent = ModelUtils.GSON.fromJson(data, HealthStatusChangedEvent.class);
-                log.info("[Event from marathon]: " + healthStatusChangedEvent.toString());
+                eventQueue.add(parseHealthStatusChangedEvent(ModelUtils.GSON.fromJson(data, HealthStatusChangedEvent.class)));
                 break;
             case "unhealthy_task_kill_event":
-                // TODO: Implement unhealthy task kill events
+                // TODO: Implement unhealthy task kill events - notify user that the task is going to be killed ?
                 final UnhealthyTaskKillEvent unhealthyTaskKillEvent = ModelUtils.GSON.fromJson(data, UnhealthyTaskKillEvent.class);
-                log.info("[Event from marathon]: " + unhealthyTaskKillEvent.toString());
                 break;
             default:
                 log.warn("Unknown ["+ name + "] event received from Marathon with data : " + data);
         }
 
+    }
+
+    private PaaSInstanceStateMonitorEvent parseStatusUpdateEvent(StatusUpdateEvent statusUpdateEvent) {
+        final PaaSInstanceStateMonitorEvent instanceStateMonitorEvent = new PaaSInstanceStateMonitorEvent();
+        try {
+            instanceStateMonitorEvent.setDate(dateFormat.parse(statusUpdateEvent.getTimestamp()).getTime());
+        } catch (ParseException e) {
+            log.error("Unable to parse event time from Marathon", e);
+            instanceStateMonitorEvent.setDate(new Date().getTime());
+        }
+
+        // Retrieve deployment id and nodetemplate id from marathon app id (== /paasDeploymentId/nodetemplateid lower cased)
+        final String[] fullAppId = statusUpdateEvent.getAppId().split("/");
+        final String groupId = fullAppId[1];
+        final String appId = fullAppId[2]; // This may throw for apps not started with alien, and that's ok because ex is silently caught afterwards
+
+        mappingService.getMarathonAppMapping(groupId).ifPresent(marathonAppsMapping -> {
+            instanceStateMonitorEvent.setDeploymentId(marathonAppsMapping.getAlienDeploymentId());
+            instanceStateMonitorEvent.setNodeTemplateId(marathonAppsMapping.getNodeTemplateId(appId));
+        });
+
+        instanceStateMonitorEvent.setInstanceId(statusUpdateEvent.getTaskId());
+        instanceStateMonitorEvent.setInstanceState(statusUpdateEvent.getTaskStatus());
+        switch (statusUpdateEvent.getTaskStatus()) {
+            case "TASK_STARTING":
+                instanceStateMonitorEvent.setInstanceState("starting");
+                instanceStateMonitorEvent.setInstanceStatus(InstanceStatus.PROCESSING);
+                break;
+            case "TASK_RUNNING":
+                instanceStateMonitorEvent.setInstanceState("started");
+                instanceStateMonitorEvent.setInstanceStatus(InstanceStatus.SUCCESS);
+                break;
+            case "TASK_STAGING":
+                instanceStateMonitorEvent.setInstanceState("creating");
+                instanceStateMonitorEvent.setInstanceStatus(InstanceStatus.PROCESSING);
+                break;
+            case "TASK_ERROR":
+            case "TASK_LOST" :
+                instanceStateMonitorEvent.setInstanceState("stopped");
+                instanceStateMonitorEvent.setInstanceStatus(InstanceStatus.FAILURE);
+                break;
+            case "TASK_KILLED":
+                instanceStateMonitorEvent.setInstanceState("deleted");
+                instanceStateMonitorEvent.setInstanceStatus(InstanceStatus.MAINTENANCE);
+            default:
+                instanceStateMonitorEvent.setInstanceStatus(InstanceStatus.PROCESSING);
+        }
+        return instanceStateMonitorEvent;
+    }
+
+    private PaaSInstanceStateMonitorEvent parseHealthStatusChangedEvent(HealthStatusChangedEvent healthStatusChangedEvent) {
+        final PaaSInstanceStateMonitorEvent instanceStateMonitorEvent = new PaaSInstanceStateMonitorEvent();
+        try {
+            instanceStateMonitorEvent.setDate(dateFormat.parse(healthStatusChangedEvent.getTimestamp()).getTime());
+        } catch (ParseException e) {
+            log.error("Unable to parse event time from Marathon", e);
+            instanceStateMonitorEvent.setDate(new Date().getTime());
+        }
+
+        // Retrieve deployment id and nodetemplate id from marathon app id (== /paasDeploymentId/nodetemplateid lower cased)
+        final String[] fullAppId = healthStatusChangedEvent.getAppId().split("/");
+        final String groupId = fullAppId[1];
+        final String appId = fullAppId[2]; // This will throw for apps not started with alien, ex is silently caught afterwards
+
+        mappingService.getMarathonAppMapping(groupId).ifPresent(marathonAppsMapping -> {
+            instanceStateMonitorEvent.setDeploymentId(marathonAppsMapping.getAlienDeploymentId());
+            instanceStateMonitorEvent.setNodeTemplateId(marathonAppsMapping.getNodeTemplateId(appId));
+        });
+
+        if (healthStatusChangedEvent.isAlive()) {
+            instanceStateMonitorEvent.setInstanceState("started");
+            instanceStateMonitorEvent.setInstanceStatus(InstanceStatus.SUCCESS);
+        } else {
+            instanceStateMonitorEvent.setInstanceStatus(InstanceStatus.FAILURE);
+        }
+
+        return instanceStateMonitorEvent;
     }
 
     /**
@@ -117,19 +190,21 @@ public class EventService {
      */
     private PaaSDeploymentStatusMonitorEvent parseDeploymentFailedEvent(String data) {
         final DeploymentFailedEvent deploymentFailedEvent = ModelUtils.GSON.fromJson(data, DeploymentFailedEvent.class);
-        log.info("[Event from marathon]: " + deploymentFailedEvent.toString());
 
         final PaaSDeploymentStatusMonitorEvent pdsme = new PaaSDeploymentStatusMonitorEvent();
         try {
-            pdsme.setDate(dateFormat.parse(deploymentFailedEvent.getTimestamp()).getTime() + 7200000); // FIXME
+            pdsme.setDate(dateFormat.parse(deploymentFailedEvent.getTimestamp()).getTime());
         } catch (ParseException e) {
             log.error("Unable to parse event time from Marathon", e);
             pdsme.setDate(new Date().getTime());
         }
         pdsme.setDeploymentStatus(DeploymentStatus.FAILURE);
-        pdsme.setDeploymentId(deploymentMap.get(deploymentFailedEvent.getId()).getAlienId());
+        // Marathon deployment is over - remove mapping
+        pdsme.setDeploymentId(
+                mappingService.getAndRemoveAlienDeploymentInfo(deploymentFailedEvent.getId())
+                        .map(AlienDeploymentMapping::getAlienDeploymentId).orElse(AlienDeploymentMapping.EMPTY.getAlienDeploymentId())
+        );
 
-        this.deploymentMap.remove(pdsme.getDeploymentId()); // clean the deployment map.
         return pdsme;
     }
 
@@ -140,19 +215,20 @@ public class EventService {
      */
     private PaaSDeploymentStatusMonitorEvent parseDeploymentSuccessEvent(String data) {
         final DeploymentSuccessEvent deploymentSuccessEvent = ModelUtils.GSON.fromJson(data, DeploymentSuccessEvent.class);
-        log.info("[Event from marathon]: " + deploymentSuccessEvent.toString());
 
         final PaaSDeploymentStatusMonitorEvent pdsme = new PaaSDeploymentStatusMonitorEvent();
         try {
-            pdsme.setDate(dateFormat.parse(deploymentSuccessEvent.getTimestamp()).getTime() + 7200000); // FIXME
+            pdsme.setDate(dateFormat.parse(deploymentSuccessEvent.getTimestamp()).getTime());
         } catch (ParseException e) {
             log.error("Unable to parse event time from Marathon", e);
             pdsme.setDate(new Date().getTime());
         }
 
-        // Determine if this is the end of a Deployment or an Undeployment
-        pdsme.setDeploymentId(deploymentMap.get(deploymentSuccessEvent.getId()).getAlienId());
-        switch (deploymentMap.get(deploymentSuccessEvent.getId()).getStatus()) {
+        // Marathon deployment is over - remove mapping
+        AlienDeploymentMapping deploymentInfo = mappingService.getAndRemoveAlienDeploymentInfo(deploymentSuccessEvent.getId()).orElse(AlienDeploymentMapping.EMPTY);
+        pdsme.setDeploymentId(deploymentInfo.getAlienDeploymentId());
+        // Determine if this is the end of a Deployment or an undeployment
+        switch (deploymentInfo.getStatus()) {
             case DEPLOYMENT_IN_PROGRESS:
                 pdsme.setDeploymentStatus(DeploymentStatus.DEPLOYED);
                 break;
@@ -162,72 +238,42 @@ public class EventService {
             default:
                 pdsme.setDeploymentStatus(DeploymentStatus.UNKNOWN);
         }
-        this.deploymentMap.remove(pdsme.getDeploymentId()); // clean the deployment map.
         return pdsme;
     }
 
     /**
-     * Parse a deployment_failed event
+     * Parse a deployment_info event
      * @param data the raw JSON String
      * @return a PaaSDeploymentStatusMonitorEvent
      */
     private PaaSDeploymentStatusMonitorEvent parseDeploymentInfoEvent(String data) {
         final DeploymentInfoEvent deploymentInfoEvent = ModelUtils.GSON.fromJson(data, DeploymentInfoEvent.class);
-        log.info("[Event from marathon]: " + deploymentInfoEvent.toString());
 
         final PaaSDeploymentStatusMonitorEvent pdsme = new PaaSDeploymentStatusMonitorEvent();
         try {
-            pdsme.setDate(dateFormat.parse(deploymentInfoEvent.getTimestamp()).getTime() + 7200000); // FIXME
+            pdsme.setDate(dateFormat.parse(deploymentInfoEvent.getTimestamp()).getTime());
         } catch (ParseException e) {
             log.error("Unable to parse event time from Marathon", e);
             pdsme.setDate(new Date().getTime());
         }
         // Determine if this is a Deployment or an Undeployment (Marathon doesn't make the difference)
-        pdsme.setDeploymentStatus(deploymentMap.get(deploymentInfoEvent.getPlan().getId()).getStatus());
-        pdsme.setDeploymentId(deploymentMap.get(deploymentInfoEvent.getPlan().getId()).getAlienId());
+        final AlienDeploymentMapping deploymentMapping = mappingService.getAlienDeploymentInfo(deploymentInfoEvent.getPlan().getId()).orElse(AlienDeploymentMapping.EMPTY);
+        pdsme.setDeploymentStatus(deploymentMapping.getStatus());
+        pdsme.setDeploymentId(deploymentMapping.getAlienDeploymentId());
         return pdsme;
     }
 
     /**
-     * Register a running deployment into the EventService.
-     * @param marathonDeploymentId the id of the deployment in Marathon
-     * @param alienDeploymentId the id of the deployment in Alien
-     * @param status The initial status of the deployment
+     * Takes all events from Marathon then flush the Queue.
+     * @return All events in the Queue.
      */
-    public void registerDeployment(String marathonDeploymentId, String alienDeploymentId, DeploymentStatus status) {
-        this.deploymentMap.put(marathonDeploymentId, new AlienDeploymentInfo(alienDeploymentId, status));
-    }
-
-    /**
-     * Returns events from a given date.
-     * @param date The earliest date the method should pull events froms
-     * @param batchSize Max array list size to return
-     * @return A List of AbstractMonitorEvents
-     */
-    public List<AbstractMonitorEvent> getEventsSince(Date date, int batchSize) {
-        return this.eventCache.getEventsSince(date.getTime(), batchSize);
-    }
-
-    /**
-     * Utility class to store mapping between an AlienDeployment and Marathon.
-     */
-    private class AlienDeploymentInfo {
-        private String alienId;
-        private DeploymentStatus status;
-
-        AlienDeploymentInfo(String alienId, DeploymentStatus status) {
-            this.alienId = alienId;
-            this.status = status;
+    public AbstractMonitorEvent[] flushEvents() {
+        ArrayList<AbstractMonitorEvent> events = new ArrayList<>(eventQueue.size());
+        AbstractMonitorEvent e;
+        while (( e = eventQueue.poll()) != null) {
+            events.add(e);
         }
-
-        String getAlienId() {
-            return alienId;
-        }
-
-        DeploymentStatus getStatus() {
-            return status;
-        }
-
+        return events.toArray(new AbstractMonitorEvent[events.size()]);
     }
 
 }
