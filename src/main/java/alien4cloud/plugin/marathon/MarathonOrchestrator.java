@@ -7,6 +7,8 @@ import java.util.*;
 
 import javax.inject.Inject;
 
+import lombok.NonNull;
+import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Scope;
 import org.springframework.stereotype.Component;
@@ -42,25 +44,23 @@ import mesosphere.marathon.client.utils.MarathonException;
  */
 @Slf4j
 @Component
+@RequiredArgsConstructor(onConstructor=@__(@Autowired))
 @Scope("prototype")
 public class MarathonOrchestrator implements IOrchestratorPlugin<MarathonConfig> {
 
-    @Autowired
-    private MarathonBuilderService marathonBuilderService;
+    private final @NonNull MarathonBuilderService marathonBuilderService;
 
-    @Autowired
-    private MarathonMappingService marathonMappingService;
+    private final @NonNull MarathonMappingService marathonMappingService;
 
-    @Autowired
-    private EventService eventService;
+    private final @NonNull EventService eventService;
+
+    private @NonNull MarathonLocationConfiguratorFactory marathonLocationConfiguratorFactory;
 
     private Marathon marathonClient;
 
-    @Inject
-    private MarathonLocationConfiguratorFactory marathonLocationConfiguratorFactory;
-
     @Override
     public void setConfiguration(MarathonConfig marathonConfig) throws PluginConfigurationException {
+        // Set up the connexion to Marathon
         marathonClient = MarathonClient.getInstance(marathonConfig.getMarathonURL());
         eventService.subscribe(marathonConfig.getMarathonURL().concat("/v2"));
     }
@@ -86,7 +86,7 @@ public class MarathonOrchestrator implements IOrchestratorPlugin<MarathonConfig>
 
     @Override
     public void undeploy(PaaSDeploymentContext paaSDeploymentContext, IPaaSCallback<?> iPaaSCallback) {
-        // TODO: Add force option in Marathon-client to always force undeployment
+        // TODO: Add force option in Marathon-client to always force undeployment - better : cancel running deployment
         try {
             Result result = marathonClient.deleteGroup(paaSDeploymentContext.getDeploymentPaaSId().toLowerCase());
             marathonMappingService.registerDeploymentInfo(result.getDeploymentId(), paaSDeploymentContext.getDeploymentId(), DeploymentStatus.UNDEPLOYMENT_IN_PROGRESS);
@@ -185,7 +185,7 @@ public class MarathonOrchestrator implements IOrchestratorPlugin<MarathonConfig>
 
     @Override
     public void getInstancesInformation(PaaSTopologyDeploymentContext paaSTopologyDeploymentContext, IPaaSCallback<Map<String, Map<String, InstanceInformation>>> iPaaSCallback) {
-        Map<String, Map<String, InstanceInformation>> topologyInfo = newHashMap();
+        final Map<String, Map<String, InstanceInformation>> topologyInfo = newHashMap();
 
         final String groupID = paaSTopologyDeploymentContext.getDeploymentPaaSId().toLowerCase();
         // For each app query Marathon for its tasks
@@ -287,9 +287,7 @@ public class MarathonOrchestrator implements IOrchestratorPlugin<MarathonConfig>
     }
 
     @Override
-    public void executeOperation(PaaSTopologyDeploymentContext paaSTopologyDeploymentContext, NodeOperationExecRequest nodeOperationExecRequest, IPaaSCallback<Map<String, String>> iPaaSCallback) throws OperationExecutionException {
-
-    }
+    public void executeOperation(PaaSTopologyDeploymentContext paaSTopologyDeploymentContext, NodeOperationExecRequest nodeOperationExecRequest, IPaaSCallback<Map<String, String>> iPaaSCallback) throws OperationExecutionException {}
 
     @Override
     public ILocationConfiguratorPlugin getConfigurator(String locationType) {
@@ -335,7 +333,5 @@ public class MarathonOrchestrator implements IOrchestratorPlugin<MarathonConfig>
     }
 
     @Override
-    public void launchWorkflow(PaaSDeploymentContext paaSDeploymentContext, String s, Map<String, Object> map, IPaaSCallback<?> iPaaSCallback) {
-
-    }
+    public void launchWorkflow(PaaSDeploymentContext paaSDeploymentContext, String s, Map<String, Object> map, IPaaSCallback<?> iPaaSCallback) {}
 }

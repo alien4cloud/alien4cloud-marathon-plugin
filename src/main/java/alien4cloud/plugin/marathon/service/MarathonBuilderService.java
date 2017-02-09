@@ -7,6 +7,8 @@ import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
+import lombok.NonNull;
+import lombok.RequiredArgsConstructor;
 import org.alien4cloud.tosca.model.definitions.*;
 import org.alien4cloud.tosca.model.templates.NodeTemplate;
 import org.alien4cloud.tosca.model.templates.RelationshipTemplate;
@@ -36,22 +38,22 @@ import mesosphere.marathon.client.model.v2.*;
  * @author Adrian Fraisse
  */
 @Service
+@RequiredArgsConstructor(onConstructor=@__(@Autowired))
 @Log4j
 public class MarathonBuilderService {
 
-    @Autowired
-    MarathonMappingService mappingService;
+    private final @NonNull MarathonMappingService mappingService;
 
     /**
      * We allocate Service Ports starting from 10000.
      * TODO: Store in DB or retrieve from Marathon. Alternatively, we could let Marathon randomly allocate a Service Port then poll for its value.
      */
-    private AtomicInteger servicePortIncrement = new AtomicInteger(10000);
+    private final AtomicInteger servicePortIncrement = new AtomicInteger(10000);
 
     /**
      * Map to store service ports allocated to marathon endpoints. Used to fulfill relationships requirements. // TODO store this in ES
      */
-    private Map<String, Integer> mapPortEndpoints = Maps.newHashMap();
+    private final Map<String, Integer> mapPortEndpoints = Maps.newHashMap();
 
     /**
      * Map an Alien deployment context to a Marathon group definition.
@@ -104,7 +106,7 @@ public class MarathonBuilderService {
     private App buildAppDefinition(PaaSNodeTemplate paaSNodeTemplate, PaaSTopology paaSTopology, List<PaaSNodeTemplate> volumeNodeTemplates) {
         final NodeTemplate nodeTemplate = paaSNodeTemplate.getTemplate();
 
-        /**
+        /*
          * Init app structure
          */
         App appDef = new App();
@@ -124,7 +126,7 @@ public class MarathonBuilderService {
         docker.setParameters(Lists.newArrayList());
         appDef.setEnv(Maps.newHashMap());
 
-        /**
+        /*
          * CREATE OPERATION
          * Map Docker image
          */
@@ -138,7 +140,7 @@ public class MarathonBuilderService {
         else
             throw new NotImplementedException("Create implementation artifact should specify the image");
 
-        /**
+        /*
          * External persistent Docker volumes using the RexRay driver
          */
         container.setVolumes(new ArrayList<>());
@@ -172,7 +174,7 @@ public class MarathonBuilderService {
             container.getVolumes().add(externalVolume);
         });
 
-        /**
+        /*
          * RELATIONSHIPS
          * Only connectsTo relationships are supported : an app can only connect to a container endpoint.
          * Each relationship implies the need to create a service port for the targeted capability.
@@ -223,7 +225,7 @@ public class MarathonBuilderService {
             });
         }
 
-        /**
+        /*
          * CAPABILITIES
          * Turn Alien endpoints capabilities into a PortMapping definition and attribute a service port to each endpoint.
          * This means that this node CAN be targeted by a ConnectsTo relationship.
@@ -259,7 +261,7 @@ public class MarathonBuilderService {
             }
         });
 
-        /**
+        /*
          * USER DEFINED PROPERTIES
          */
         final Map<String, AbstractPropertyValue> nodeTemplateProperties = nodeTemplate.getProperties();

@@ -47,19 +47,19 @@ public class MarathonMappingService {
         return Optional.ofNullable(marathonToAlienDeploymentMap.get(marathonDeploymentId));
     }
 
-    public Optional<AlienDeploymentMapping> getAndRemoveAlienDeploymentInfo(String marathonDeploymentId) {
+    Optional<AlienDeploymentMapping> getAndRemoveAlienDeploymentInfo(String marathonDeploymentId) {
         return Optional.ofNullable(marathonToAlienDeploymentMap.remove(marathonDeploymentId));
     }
 
-    public void registerGroupMapping(String groupId, String alienDeploymentId) {
+    void registerGroupMapping(String groupId, String alienDeploymentId) {
         marathonToAlienAppsMap.put(groupId, new MarathonAppsMapping(alienDeploymentId)); // TODO throw if already present ?
     }
 
-    public void registerAppMapping(String groupId, String appId, String nodeTemplateId) { // TODO throw if already present ?
+    void registerAppMapping(String groupId, String appId, String nodeTemplateId) { // TODO throw if already present ?
         marathonToAlienAppsMap.get(groupId).addAppToNodeTemplateMapping(appId, nodeTemplateId);
     }
 
-    public Optional<MarathonAppsMapping> getMarathonAppMapping(String marathonGroupId) {
+    Optional<MarathonAppsMapping> getMarathonAppMapping(String marathonGroupId) {
         return Optional.ofNullable(marathonToAlienAppsMap.get(marathonGroupId));
     }
 

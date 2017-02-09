@@ -8,6 +8,8 @@ import javax.ws.rs.client.Client;
 import javax.ws.rs.client.ClientBuilder;
 import javax.ws.rs.client.WebTarget;
 
+import alien4cloud.plugin.marathon.service.model.mapping.MarathonAppsMapping;
+import lombok.NonNull;
 import org.glassfish.jersey.media.sse.EventListener;
 import org.glassfish.jersey.media.sse.EventSource;
 import org.glassfish.jersey.media.sse.SseFeature;
@@ -34,8 +36,7 @@ import mesosphere.marathon.client.utils.ModelUtils;
 @Log4j
 public class EventService {
 
-    @Autowired
-    private MarathonMappingService mappingService;
+    private final MarathonMappingService mappingService;
 
     /**
      * Event queue
@@ -47,7 +48,9 @@ public class EventService {
      */
     private final SimpleDateFormat dateFormat;
 
-    EventService() {
+    @Autowired
+    public EventService(MarathonMappingService mappingService) {
+        this.mappingService = mappingService;
         // The event cache
         eventQueue = new LinkedList<>();
         dateFormat = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'");
@@ -63,7 +66,6 @@ public class EventService {
         EventSource eventSource = EventSource.target(target).build();
         EventListener listener = inboundEvent -> this.parseMarathonEvent(inboundEvent.getName(), inboundEvent.readData(String.class));
 
-        // TODO: Implement more events
         eventSource.register(
                 listener,
                 "status_update_event",
@@ -79,7 +81,7 @@ public class EventService {
      * @param data The JSON data associated with the event
      */
     private void parseMarathonEvent(String name, String data) {
-        log.warn("[Event from marathon]: " + name + " : " + data);
+        log.debug("[Event from marathon]: " + name + " : " + data);
         switch (name) {
             case "deployment_info":
                 eventQueue.add(parseDeploymentInfoEvent(data));
@@ -98,7 +100,7 @@ public class EventService {
                 break;
             case "unhealthy_task_kill_event":
                 // TODO: Implement unhealthy task kill events - notify user that the task is going to be killed ?
-                final UnhealthyTaskKillEvent unhealthyTaskKillEvent = ModelUtils.GSON.fromJson(data, UnhealthyTaskKillEvent.class);
+                // ModelUtils.GSON.fromJson(data, UnhealthyTaskKillEvent.class);
                 break;
             default:
                 log.warn("Unknown ["+ name + "] event received from Marathon with data : " + data);
@@ -120,10 +122,9 @@ public class EventService {
         final String groupId = fullAppId[1];
         final String appId = fullAppId[2]; // This may throw for apps not started with alien, and that's ok because ex is silently caught afterwards
 
-        mappingService.getMarathonAppMapping(groupId).ifPresent(marathonAppsMapping -> {
-            instanceStateMonitorEvent.setDeploymentId(marathonAppsMapping.getAlienDeploymentId());
-            instanceStateMonitorEvent.setNodeTemplateId(marathonAppsMapping.getNodeTemplateId(appId));
-        });
+        final Optional<MarathonAppsMapping> appMapping = mappingService.getMarathonAppMapping(groupId);
+        instanceStateMonitorEvent.setDeploymentId(appMapping.map(MarathonAppsMapping::getAlienDeploymentId).orElse("UNKNOWN_DEPLOYMENT"));
+        instanceStateMonitorEvent.setNodeTemplateId(appMapping.map(mapping -> mapping.getNodeTemplateId(appId)).orElse("UNKNOWN_NODE"));
 
         instanceStateMonitorEvent.setInstanceId(statusUpdateEvent.getTaskId());
         instanceStateMonitorEvent.setInstanceState(statusUpdateEvent.getTaskStatus());
@@ -168,10 +169,9 @@ public class EventService {
         final String groupId = fullAppId[1];
         final String appId = fullAppId[2]; // This will throw for apps not started with alien, ex is silently caught afterwards
 
-        mappingService.getMarathonAppMapping(groupId).ifPresent(marathonAppsMapping -> {
-            instanceStateMonitorEvent.setDeploymentId(marathonAppsMapping.getAlienDeploymentId());
-            instanceStateMonitorEvent.setNodeTemplateId(marathonAppsMapping.getNodeTemplateId(appId));
-        });
+        final Optional<MarathonAppsMapping> appMapping = mappingService.getMarathonAppMapping(groupId);
+        instanceStateMonitorEvent.setDeploymentId(appMapping.map(MarathonAppsMapping::getAlienDeploymentId).orElse("UNKNOWN_DEPLOYMENT"));
+        instanceStateMonitorEvent.setNodeTemplateId(appMapping.map(mapping -> mapping.getNodeTemplateId(appId)).orElse("UNKNOWN_NODE"));
 
         if (healthStatusChangedEvent.isAlive()) {
             instanceStateMonitorEvent.setInstanceState("started");
