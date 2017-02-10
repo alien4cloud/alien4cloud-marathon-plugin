@@ -47,7 +47,7 @@ public class MarathonMappingService {
         return Optional.ofNullable(marathonToAlienDeploymentMap.get(marathonDeploymentId));
     }
 
-    Optional<AlienDeploymentMapping> getAndRemoveAlienDeploymentInfo(String marathonDeploymentId) {
+    public Optional<AlienDeploymentMapping> getAndRemoveAlienDeploymentInfo(String marathonDeploymentId) {
         return Optional.ofNullable(marathonToAlienDeploymentMap.remove(marathonDeploymentId));
     }
 
@@ -59,7 +59,7 @@ public class MarathonMappingService {
         marathonToAlienAppsMap.get(groupId).addAppToNodeTemplateMapping(appId, nodeTemplateId);
     }
 
-    Optional<MarathonAppsMapping> getMarathonAppMapping(String marathonGroupId) {
+    public Optional<MarathonAppsMapping> getMarathonAppMapping(String marathonGroupId) {
         return Optional.ofNullable(marathonToAlienAppsMap.get(marathonGroupId));
     }
 

@@ -1,6 +1,5 @@
 package alien4cloud.plugin.marathon.service.model.events.deployments;
 
-import alien4cloud.plugin.marathon.service.model.events.AbstractEvent;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
@@ -13,21 +12,20 @@ import lombok.ToString;
 @Setter
 @NoArgsConstructor
 @ToString
-public class DeploymentInfoEvent extends AbstractEvent {
-
+public class DeploymentInfoEvent extends AbstractDeploymentEvent {
     private Plan plan;
 
+    @Override
+    public String getId() {
+        return this.plan.getId();
+    }
+
+    @Getter
+    @Setter
+    @ToString
+    @NoArgsConstructor
     public class Plan {
         private String id;
-
-        public Plan() {}
-
-        public String getId() {
-            return id;
-        }
-
-        public void setId(String id) {
-            this.id = id;
-        }
+        // NB: We do not need more than the deployment id atm
     }
 }

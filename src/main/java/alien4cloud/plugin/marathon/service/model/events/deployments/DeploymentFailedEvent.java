@@ -1,6 +1,5 @@
 package alien4cloud.plugin.marathon.service.model.events.deployments;
 
-import alien4cloud.plugin.marathon.service.model.events.AbstractEvent;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
@@ -13,6 +12,6 @@ import lombok.ToString;
 @Getter
 @NoArgsConstructor
 @ToString
-public class DeploymentFailedEvent extends AbstractEvent {
+public class DeploymentFailedEvent extends AbstractDeploymentEvent {
     private String id;
 }
