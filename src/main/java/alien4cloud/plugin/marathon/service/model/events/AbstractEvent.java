@@ -10,10 +10,8 @@ import lombok.ToString;
  */
 @Setter
 @Getter
-@NoArgsConstructor
 @ToString
 public abstract class AbstractEvent {
-
     private String eventType;
     private String timestamp;
 }
