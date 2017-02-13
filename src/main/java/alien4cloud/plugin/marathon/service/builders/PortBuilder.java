@@ -7,15 +7,17 @@ import mesosphere.marathon.client.model.v2.Port;
  */
 public class PortBuilder {
     final Port port;
-    final DockerBuilder parentBuilder;
 
-    private PortBuilder(DockerBuilder parentBuilder) {
+    private PortBuilder() {
         this.port = new Port(0);
-        this.parentBuilder = parentBuilder;
     }
 
-    public static PortBuilder builder(DockerBuilder parentBuilder) {
-        return new PortBuilder(parentBuilder);
+    public static PortBuilder builder() {
+        return new PortBuilder();
+    }
+
+    public Port build() {
+        return port;
     }
 
     public PortBuilder tcp() {
@@ -38,7 +40,4 @@ public class PortBuilder {
         return this;
     }
 
-    public DockerBuilder build() {
-        return this.parentBuilder.setPortMapping(this.port);
-    }
 }

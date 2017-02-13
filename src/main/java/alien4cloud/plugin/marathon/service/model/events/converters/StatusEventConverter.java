@@ -1,4 +1,4 @@
-package alien4cloud.plugin.marathon.service.model.events.converter;
+package alien4cloud.plugin.marathon.service.model.events.converters;
 
 import java.util.Optional;
 

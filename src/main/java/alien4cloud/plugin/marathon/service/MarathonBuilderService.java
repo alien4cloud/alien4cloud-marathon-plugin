@@ -1,15 +1,13 @@
 package alien4cloud.plugin.marathon.service;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
-import lombok.NonNull;
-import lombok.RequiredArgsConstructor;
 import org.alien4cloud.tosca.model.definitions.*;
+import org.alien4cloud.tosca.model.templates.Capability;
 import org.alien4cloud.tosca.model.templates.NodeTemplate;
 import org.alien4cloud.tosca.model.templates.RelationshipTemplate;
 import org.alien4cloud.tosca.model.templates.ScalingPolicy;
@@ -26,8 +24,14 @@ import alien4cloud.paas.model.PaaSNodeTemplate;
 import alien4cloud.paas.model.PaaSRelationshipTemplate;
 import alien4cloud.paas.model.PaaSTopology;
 import alien4cloud.paas.model.PaaSTopologyDeploymentContext;
+import alien4cloud.plugin.marathon.service.builders.AppBuilder;
+import alien4cloud.plugin.marathon.service.builders.ExternalVolumeBuilder;
+import alien4cloud.plugin.marathon.service.builders.PortBuilder;
+import lombok.NonNull;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.log4j.Log4j;
-import mesosphere.marathon.client.model.v2.*;
+import mesosphere.marathon.client.model.v2.App;
+import mesosphere.marathon.client.model.v2.Group;
 
 /**
  * Service for transformation of Alien PaaSTopologies into Marathon Groups and Apps definitions.
@@ -107,93 +111,18 @@ public class MarathonBuilderService {
         final NodeTemplate nodeTemplate = paaSNodeTemplate.getTemplate();
 
         /*
-         * Init app structure
+         * CREATE OPERATION defines a docker container
+         * Retrieve docker image from the Create operation implementation artifact
          */
-        App appDef = new App();
-        appDef.setInstances(Optional.ofNullable(paaSNodeTemplate.getScalingPolicy()).orElse(ScalingPolicy.NOT_SCALABLE_POLICY).getInitialInstances());
-        appDef.setId(paaSNodeTemplate.getId().toLowerCase());
-        // Only accepted special chars in app ids are hyphens and dots
-        if (!appDef.getId().matches("^(([a-z0-9]|[a-z0-9][a-z0-9\\-]*[a-z0-9])\\.)*([a-z0-9]|[a-z0-9][a-z0-9\\-]*[a-z0-9])|(\\.|\\.\\.)$")) {
-            throw new IllegalArgumentException("Node ID is invalid. Allowed: lowercase letters, digits, hyphens, \".\", \"..\"");
-        }
-
-        Container container = new Container();
-        Docker docker = new Docker();
-        container.setType("DOCKER");
-        container.setDocker(docker);
-        appDef.setContainer(container);
-        docker.setPortMappings(Lists.newArrayList());
-        docker.setParameters(Lists.newArrayList());
-        appDef.setEnv(Maps.newHashMap());
-
-        /*
-         * CREATE OPERATION
-         * Map Docker image
-         */
-        // Only the create operation is supported
         final Operation createOperation = paaSNodeTemplate.getInterfaces().get("tosca.interfaces.node.lifecycle.Standard").getOperations().get("create");
 
-        // Retrieve docker image from the Create operation implementation artifact
-        final ImplementationArtifact implementationArtifact = createOperation.getImplementationArtifact();
-        if (implementationArtifact != null)
-            docker.setImage(implementationArtifact.getArtifactRef());
-        else
-            throw new NotImplementedException("Create implementation artifact should specify the image");
-
-        /*
-         * External persistent Docker volumes using the RexRay driver
-         */
-        container.setVolumes(new ArrayList<>());
-        volumeNodeTemplates.forEach(volumeTemplate -> {
-            final Map<String, AbstractPropertyValue> volumeTemplateProperties = volumeTemplate.getTemplate().getProperties();
-            // Build volume definition
-            final Optional<String> volumeName = Optional.ofNullable(((ScalarPropertyValue) volumeTemplateProperties.get("volume_name"))).map(ScalarPropertyValue::getValue);
-            final Optional<String> volumeSize = Optional.ofNullable(((ScalarPropertyValue) volumeTemplateProperties.get("size"))).map(ScalarPropertyValue::getValue);
-
-            // Find containerPath - a property of the relationship
-            final String containerPath = volumeTemplate.getRelationshipTemplates().stream()
-                    .filter(paaSRelationshipTemplate -> paaSRelationshipTemplate.instanceOf("alien.relationships.MountDockerVolume")).findFirst()
-                    .map(PaaSRelationshipTemplate::getTemplate).map(RelationshipTemplate::getProperties)
-                    .map(relationshipProps -> ((ScalarPropertyValue) relationshipProps.get("container_path"))).map(ScalarPropertyValue::getValue)
-                    .orElseThrow(() -> new InvalidArgumentException("A container path must be provided to mount a volume to a container."));
-
-            // For now only ExternalVolumes are supported
-            final ExternalVolume externalVolume = new ExternalVolume();
-            externalVolume.setDriver("rexray");
-            externalVolume.setName(volumeName.orElse("FIXME")); // FIXME: Should persist and manage volume names
-            externalVolume.setContainerPath(containerPath);
-            externalVolume.setMode("RW");
-
-            // Volume size is not supported with Docker containers ATM
-            if ("MESOS".equals(container.getType()))
-                externalVolume.setSize(Integer.valueOf(volumeSize.filter(s -> s.matches("^[1-9][0-9]*\\s(GiB|GB)$")).map(s -> s.split("\\s")[0]).orElse("1")));
-
-            // With external volumes marathon cannot scale containers.
-            appDef.setInstances(1);
-
-            container.getVolumes().add(externalVolume);
-        });
-
-        /*
-         * RELATIONSHIPS
-         * Only connectsTo relationships are supported : an app can only connect to a container endpoint.
-         * Each relationship implies the need to create a service port for the targeted capability.
-         * We keep track of service ports allocated to relationships' targets in order to allocate only one port per capability.
-         */
-        if (nodeTemplate.getRelationships() != null) { // Get all the relationships this node is a source of
-            nodeTemplate.getRelationships().forEach((key, relationshipTemplate) -> {
-                // TODO: We should validate that the targeted node is of Docker type and better check the relationship type
-                if ("tosca.relationships.connectsto".equalsIgnoreCase(relationshipTemplate.getType())) {
-                    if (!mapPortEndpoints.containsKey(relationshipTemplate.getTarget().concat(relationshipTemplate.getTargetedCapabilityName()))) {
-                        // We haven't processed the target already: we pre-allocate a service port
-                        mapPortEndpoints.put(relationshipTemplate.getTarget().concat(relationshipTemplate.getTargetedCapabilityName()),
-                                this.servicePortIncrement.getAndIncrement());
-                    }
-                    // Add a dependency to the target
-                    appDef.addDependency(relationshipTemplate.getTarget().toLowerCase());
-                }
-            });
-        }
+        // Initialize the App builder - A docker app with default healthcheck enabled.
+        AppBuilder appBuilder = AppBuilder.builder(paaSNodeTemplate.getId())
+                .instances(Optional.ofNullable(paaSNodeTemplate.getScalingPolicy()).orElse(ScalingPolicy.NOT_SCALABLE_POLICY).getInitialInstances())
+                .docker(Optional.ofNullable(createOperation.getImplementationArtifact())
+                    .map(AbstractArtifact::getArtifactRef)
+                    .orElseThrow(() -> new NotImplementedException("Create implementation artifact should specify the image"))
+                ).defaultHealthCheck();
 
         /*
          * INPUTS from the Create operation
@@ -211,19 +140,23 @@ public class MarathonBuilderService {
                 } else if (val instanceof ScalarPropertyValue)
                     value = ((ScalarPropertyValue) val).getValue();
 
-                if (key.startsWith("ENV_")) {
-                    // Input as environment variable within the container
-                    appDef.getEnv().put(key.replaceFirst("^ENV_", ""), value);
-                } else if (key.startsWith("OPT_")) {
-                    // Input as a docker option given to the docker cli
-                    docker.getParameters().add(new Parameter(key.replaceFirst("OPT_", ""), value));
-                } else if (key.startsWith("ARG_")) {
-                    // Input as an argument to the docker run command
-                    appDef.getArgs().add(value); // Arguments are unnamed
-                } else
-                    log.warn("Unrecognized prefix for input : <" + key + ">");
+                appBuilder.input(key, value);
             });
         }
+
+        /*
+         * External persistent Docker volumes using the RexRay driver
+         */
+        buildVolumesDefinition(volumeNodeTemplates, appBuilder);
+
+        /*
+         * RELATIONSHIPS
+         * Only connectsTo relationships are supported : an app can only connect to a container endpoint.
+         * Each relationship implies the need to create a service port for the targeted capability.
+         * We keep track of service ports allocated to relationships' targets in order to allocate only one port per capability.
+         */
+        buildDependenciesDefinition(nodeTemplate.getRelationships(), appBuilder);
+
 
         /*
          * CAPABILITIES
@@ -231,86 +164,120 @@ public class MarathonBuilderService {
          * This means that this node CAN be targeted by a ConnectsTo relationship.
          * Register the app into the internal service discovery group.
          */
-        nodeTemplate.getCapabilities().forEach((name, capability) -> {
-            if (capability.getType().contains("capabilities.endpoint")) { // FIXME : better check of capability types...
-                // Retrieve port mapping for the capability - note : if no port is specified then let marathon decide.
-                Port port = capability.getProperties().get("port") != null
-                        ? new Port(Integer.valueOf(((ScalarPropertyValue) capability.getProperties().get("port")).getValue())) : new Port(0);
-
-                // TODO: Attribute service port only if necessary, eg. the capability is NOT targeted or if ports are statically allocated
-                // If this node's capability is targeted by a relationship, we may already have pre-allocated a service port for it
-                final String endpointID = paaSNodeTemplate.getId().concat(name);
-                final Integer servicePort = mapPortEndpoints.getOrDefault(endpointID, this.servicePortIncrement.getAndIncrement());
-                port.setServicePort(servicePort);
-                mapPortEndpoints.put(endpointID, servicePort); // Store the endpoint for further use by other apps
-
-                // TODO: set haproxy group only if necessary
-                // The HAPROXY_GROUP label indicates which load balancer group this application should register to.
-                // For now this default to internal.
-                appDef.addLabel("HAPROXY_GROUP", "internal");
-
-                // If the capability has a "docker_bridge_port_mapping" property, then use Docker bridge networking
-                if (capability.getProperties().containsKey("docker_bridge_port_mapping")) {
-                    docker.setNetwork("BRIDGE");
-                    port.setHostPort(Integer.valueOf(((ScalarPropertyValue) capability.getProperties().get("docker_bridge_port_mapping")).getValue()));
-                    port.setProtocol("tcp");
-                } else
-                    docker.setNetwork("HOST");
-
-                docker.getPortMappings().add(port);
-            }
-        });
+        buildPortDefinition(nodeTemplate.getCapabilities(), paaSNodeTemplate.getId(), appBuilder);
 
         /*
          * USER DEFINED PROPERTIES
          */
-        final Map<String, AbstractPropertyValue> nodeTemplateProperties = nodeTemplate.getProperties();
+        buildUserPropsDefinition(nodeTemplate.getProperties(), appBuilder);
 
-        /* Resources Marathon should allocate the container - default 1.0 cpu 256 MB ram */
-        final Optional<String> cpu_share = Optional.ofNullable(((ScalarPropertyValue) nodeTemplateProperties.get("cpu_share")).getValue());
-        final Optional<String> mem_share = Optional.ofNullable(((ScalarPropertyValue) nodeTemplateProperties.get("mem_share")).getValue());
-        appDef.setCpus(Double.valueOf(cpu_share.orElse("1.0")));
-        appDef.setMem(Double.valueOf(mem_share.orElse("256.0")));
+
+        return appBuilder.build();
+    }
+
+    private AppBuilder buildUserPropsDefinition(Map<String, AbstractPropertyValue> nodeTemplateProperties, AppBuilder appBuilder) {
+    /* Resources Marathon should allocate the container - default 1.0 cpu 256 MB ram */
+        appBuilder.cpu(Optional.ofNullable(((ScalarPropertyValue) nodeTemplateProperties.get("cpu_share")).getValue()).map(Double::valueOf).orElse(1.0));
+        appBuilder.mem(Optional.ofNullable(((ScalarPropertyValue) nodeTemplateProperties.get("mem_share")).getValue()).map(Double::valueOf).orElse(256.0));
 
         /* Docker command */
-        if (nodeTemplateProperties.get("docker_run_cmd") != null) {
-            appDef.setCmd(((ScalarPropertyValue) nodeTemplateProperties.get("docker_run_cmd")).getValue());
-        }
+        if (nodeTemplateProperties.get("docker_run_cmd") != null)
+            appBuilder.cmd(((ScalarPropertyValue) nodeTemplateProperties.get("docker_run_cmd")).getValue());
 
         /* Env variables ==> Map of String values */
-        if (nodeTemplateProperties.get("docker_env_vars") != null) {
-            ((ComplexPropertyValue) nodeTemplateProperties.get("docker_env_vars")).getValue().forEach((var, val) -> {
+        if (nodeTemplateProperties.get("docker_env_vars") != null)
+            ((ComplexPropertyValue) nodeTemplateProperties.get("docker_env_vars")).getValue().forEach((envName, envValue) ->
                 // Mapped property expected as String. Deal with the property as a environment variable
-                appDef.getEnv().put(var, String.valueOf(val)); // TODO Replace by MapUtil || JsonUtil
-            });
-        }
+                appBuilder.envVariable(envName, String.valueOf(envValue))
+            );
 
         /* Docker options ==> Map of String values */
         if (nodeTemplateProperties.get("docker_options") != null) {
-            ((ComplexPropertyValue) nodeTemplateProperties.get("docker_options")).getValue().forEach((var, val) -> {
-                docker.getParameters().add(new Parameter(var, String.valueOf(val)));
-            });
+            ((ComplexPropertyValue) nodeTemplateProperties.get("docker_options")).getValue().forEach((optName, optValue) ->
+                appBuilder.dockerOption(optName, String.valueOf(optValue))
+            );
         }
 
         /* Docker run args */
         if (nodeTemplateProperties.get("docker_run_args") != null) {
-            if (appDef.getArgs() == null) {
-                appDef.setArgs(Lists.newArrayList());
-            }
-            appDef.getArgs().addAll(
-                    ((ListPropertyValue) nodeTemplateProperties.get("docker_run_args")).getValue().stream().map(String::valueOf).collect(Collectors.toList()));
+            appBuilder.dockerArgs(((ListPropertyValue) nodeTemplateProperties.get("docker_run_args")).getValue().stream().map(String::valueOf).toArray(String[]::new));
         }
+        return appBuilder;
+    }
 
-        /* Create a basic TCP health check */
-        HealthCheck healthCheck = new HealthCheck();
-        healthCheck.setPortIndex(0);
-        healthCheck.setProtocol("TCP");
-        healthCheck.setGracePeriodSeconds(300);
-        healthCheck.setIntervalSeconds(15);
-        healthCheck.setMaxConsecutiveFailures(1);
-        appDef.setHealthChecks(Lists.newArrayList(healthCheck));
+    private AppBuilder buildPortDefinition(Map<String, Capability> capabilities, String appId, AppBuilder appBuilder) {
+        capabilities.forEach((name, capability) -> {
+            if (capability.getType().contains("capabilities.endpoint")) { // FIXME : better check of capability types
 
-        return appDef;
+                // TODO: Attribute service port only if necessary, eg. the capability is NOT targeted or if ports are statically allocated
+                final String endpointID = appId.concat(name);
+                final Integer servicePort = mapPortEndpoints.getOrDefault(endpointID, this.servicePortIncrement.getAndIncrement()); // If this node's capability is targeted by a relationship, we may already have pre-allocated a service port for it
+                mapPortEndpoints.put(endpointID, servicePort); // Store the endpoint for further use by other apps
+
+                // Build a port definition
+                PortBuilder portBuilder = PortBuilder.builder()
+                        .containerPort(capability.getProperties().get("port") != null ?
+                                Integer.valueOf(((ScalarPropertyValue) capability.getProperties().get("port")).getValue()) : 0)
+                        .servicePort(servicePort);
+
+                // If the capability has a "docker_bridge_port_mapping" property, then use Docker bridge networking
+                if (capability.getProperties().containsKey("docker_bridge_port_mapping")) {
+                    appBuilder.bridgeNetworking();
+                    portBuilder.hostPort(
+                            Optional.ofNullable(((ScalarPropertyValue) capability.getProperties()
+                                    .get("docker_bridge_port_mapping"))
+                                    .getValue())
+                                    .map(Integer::valueOf)
+                                    .orElse(0))
+                    .tcp();
+                } else
+                    appBuilder.hostNetworking();
+
+                // TODO: set haproxy group only if necessary. The HAPROXY_GROUP label indicates which load balancer group this application should register to.
+                appBuilder.portMapping(portBuilder.build()).internallyLoadBalanced();
+            }
+        });
+        return appBuilder;
+    }
+
+    private AppBuilder buildDependenciesDefinition(Map<String, RelationshipTemplate> relationships, AppBuilder appBuilder) {
+        if (relationships != null) { // Get all the relationships this node is a source of
+            relationships.forEach((key, relationshipTemplate) -> {
+                // TODO: We should validate that the targeted node is of Docker type and better check the relationship type
+                if ("tosca.relationships.connectsto".equalsIgnoreCase(relationshipTemplate.getType())) {
+                    if (!mapPortEndpoints.containsKey(relationshipTemplate.getTarget().concat(relationshipTemplate.getTargetedCapabilityName()))) {
+                        // We haven't processed the target already: we pre-allocate a service port
+                        mapPortEndpoints.put(relationshipTemplate.getTarget().concat(relationshipTemplate.getTargetedCapabilityName()),
+                                this.servicePortIncrement.getAndIncrement());
+                    }
+                    // Add a dependency to the target
+                    appBuilder.dependency(relationshipTemplate.getTarget().toLowerCase());
+                }
+            });
+        }
+        return appBuilder;
+    }
+
+    private AppBuilder buildVolumesDefinition(List<PaaSNodeTemplate> volumeNodeTemplates, AppBuilder appBuilder) {
+        volumeNodeTemplates.forEach(volumeTemplate -> {
+            final Map<String, AbstractPropertyValue> volumeTemplateProperties = volumeTemplate.getTemplate().getProperties();
+            // Build volume definition
+            appBuilder.externalVolume(
+                ExternalVolumeBuilder.builder(volumeTemplate.getRelationshipTemplates().stream() // Find containerPath - a property of the relationship
+                        .filter(paaSRelationshipTemplate -> paaSRelationshipTemplate.instanceOf("alien.relationships.MountDockerVolume")).findFirst()
+                        .map(PaaSRelationshipTemplate::getTemplate).map(RelationshipTemplate::getProperties)
+                        .map(relationshipProps -> ((ScalarPropertyValue) relationshipProps.get("container_path"))).map(ScalarPropertyValue::getValue)
+                        .orElseThrow(() -> new InvalidArgumentException("A container path must be provided to mount a volume to a container.")))
+                    .name(Optional.ofNullable(((ScalarPropertyValue) volumeTemplateProperties.get("volume_name"))) // FIXME: Should persist and manage volume names
+                            .map(ScalarPropertyValue::getValue).orElse("FIXME"))
+                    .size(Optional.ofNullable(((ScalarPropertyValue) volumeTemplateProperties.get("size")))
+                            .map(ScalarPropertyValue::getValue)
+                            .filter(s -> s.matches("^[1-9][0-9]*\\s(GiB|GB)$"))
+                            .map(s -> s.split("\\s")[0]).map(Integer::valueOf).orElse(1)) // Note: won't work for docker containers ATM)
+                    .build()
+            ).instances(1); // External volumes make the app not scalable
+        });
+        return appBuilder;
     }
 
     /**

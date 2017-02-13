@@ -14,8 +14,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import alien4cloud.paas.model.AbstractMonitorEvent;
-import alien4cloud.plugin.marathon.service.model.events.converter.DeploymentEventConverter;
-import alien4cloud.plugin.marathon.service.model.events.converter.StatusEventConverter;
+import alien4cloud.plugin.marathon.service.model.events.converters.DeploymentEventConverter;
+import alien4cloud.plugin.marathon.service.model.events.converters.StatusEventConverter;
 import alien4cloud.plugin.marathon.service.model.events.deployments.DeploymentFailedEvent;
 import alien4cloud.plugin.marathon.service.model.events.deployments.DeploymentInfoEvent;
 import alien4cloud.plugin.marathon.service.model.events.deployments.DeploymentSuccessEvent;

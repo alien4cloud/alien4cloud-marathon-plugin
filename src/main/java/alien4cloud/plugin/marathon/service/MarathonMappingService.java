@@ -4,6 +4,7 @@ import java.util.Collection;
 import java.util.Map;
 import java.util.Optional;
 
+import lombok.Getter;
 import org.springframework.stereotype.Service;
 
 import com.google.common.collect.Maps;
@@ -16,7 +17,7 @@ import lombok.extern.log4j.Log4j;
 
 /**
  * Service to help maintain a mapping between ids in Marathon and ids in Alien.
- * Optional based-api to allow custom behavior when null.
+ * Optional-based api to allow custom behavior when null.
  */
 @Service
 @Log4j
@@ -32,6 +33,12 @@ public class MarathonMappingService {
      * Map marathon deployment ids, which are ephemeral, to alien deployment ids
      */
     private final Map<String, AlienDeploymentMapping> marathonToAlienDeploymentMap = Maps.newConcurrentMap();
+
+    /**
+     * Orchestrator ID for this plugin instance
+     */
+    @Getter
+    private String orchestratorId;
 
     /**
      * Register a running deployment into the MappingService.
