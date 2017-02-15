@@ -5,8 +5,6 @@ import static java.util.Collections.emptyMap;
 
 import java.util.*;
 
-import javax.inject.Inject;
-
 import lombok.NonNull;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -28,8 +26,8 @@ import alien4cloud.paas.model.*;
 import alien4cloud.plugin.marathon.config.MarathonConfig;
 import alien4cloud.plugin.marathon.location.MarathonLocationConfiguratorFactory;
 import alien4cloud.plugin.marathon.service.EventService;
-import alien4cloud.plugin.marathon.service.MarathonBuilderService;
-import alien4cloud.plugin.marathon.service.MarathonMappingService;
+import alien4cloud.plugin.marathon.service.BuilderService;
+import alien4cloud.plugin.marathon.service.MappingService;
 import alien4cloud.utils.MapUtil;
 import lombok.extern.slf4j.Slf4j;
 import mesosphere.marathon.client.Marathon;
@@ -48,9 +46,11 @@ import mesosphere.marathon.client.utils.MarathonException;
 @Scope("prototype")
 public class MarathonOrchestrator implements IOrchestratorPlugin<MarathonConfig> {
 
-    private final @NonNull MarathonBuilderService marathonBuilderService;
+    private final @NonNull
+    BuilderService builderService;
 
-    private final @NonNull MarathonMappingService marathonMappingService;
+    private final @NonNull
+    MappingService mappingService;
 
     private final @NonNull EventService eventService;
 
@@ -68,16 +68,16 @@ public class MarathonOrchestrator implements IOrchestratorPlugin<MarathonConfig>
     @Override
     public void init(Map<String, PaaSTopologyDeploymentContext> activeDeployments) {
         // Init mapping
-        marathonMappingService.init(activeDeployments.values());
+        mappingService.init(activeDeployments.values());
     }
 
     @Override
     public void deploy(PaaSTopologyDeploymentContext paaSTopologyDeploymentContext, IPaaSCallback<?> iPaaSCallback) {
-        Group group = marathonBuilderService.buildGroupDefinition(paaSTopologyDeploymentContext);
+        Group group = builderService.buildGroupDefinition(paaSTopologyDeploymentContext);
         try {
             Result result = marathonClient.createGroup(group);
             // Store the deployment ID to handle event mapping
-            marathonMappingService.registerDeploymentInfo(result.getDeploymentId(), paaSTopologyDeploymentContext.getDeploymentId(), DeploymentStatus.DEPLOYMENT_IN_PROGRESS);
+            mappingService.registerDeploymentInfo(result.getDeploymentId(), paaSTopologyDeploymentContext.getDeploymentId(), DeploymentStatus.DEPLOYMENT_IN_PROGRESS);
         } catch (MarathonException e) {
             log.error("Failure while deploying - Got error code ["+e.getStatus()+"] with message: " + e.getMessage());
         }
@@ -89,7 +89,7 @@ public class MarathonOrchestrator implements IOrchestratorPlugin<MarathonConfig>
         // TODO: Add force option in Marathon-client to always force undeployment - better : cancel running deployment
         try {
             Result result = marathonClient.deleteGroup(paaSDeploymentContext.getDeploymentPaaSId().toLowerCase());
-            marathonMappingService.registerDeploymentInfo(result.getDeploymentId(), paaSDeploymentContext.getDeploymentId(), DeploymentStatus.UNDEPLOYMENT_IN_PROGRESS);
+            mappingService.registerDeploymentInfo(result.getDeploymentId(), paaSDeploymentContext.getDeploymentId(), DeploymentStatus.UNDEPLOYMENT_IN_PROGRESS);
         } catch (MarathonException e) {
             log.error("Failure while undeploying - Got error code ["+e.getStatus()+"] with message: " + e.getMessage());
             iPaaSCallback.onFailure(e);

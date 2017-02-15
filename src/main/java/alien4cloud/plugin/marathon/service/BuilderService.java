@@ -44,9 +44,10 @@ import mesosphere.marathon.client.model.v2.Group;
 @Service
 @RequiredArgsConstructor(onConstructor=@__(@Autowired))
 @Log4j
-public class MarathonBuilderService {
+public class BuilderService {
 
-    private final @NonNull MarathonMappingService mappingService;
+    private final @NonNull
+    MappingService mappingService;
 
     /**
      * We allocate Service Ports starting from 10000.

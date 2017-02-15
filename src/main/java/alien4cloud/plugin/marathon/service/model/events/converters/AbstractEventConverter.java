@@ -8,7 +8,7 @@ import java.util.TimeZone;
 import org.springframework.beans.factory.annotation.Autowired;
 
 import alien4cloud.paas.model.AbstractMonitorEvent;
-import alien4cloud.plugin.marathon.service.MarathonMappingService;
+import alien4cloud.plugin.marathon.service.MappingService;
 import alien4cloud.plugin.marathon.service.model.events.AbstractEvent;
 import lombok.extern.log4j.Log4j;
 
@@ -20,14 +20,14 @@ import lombok.extern.log4j.Log4j;
 @Log4j
 public abstract class AbstractEventConverter<T extends AbstractEvent, U extends AbstractMonitorEvent> {
 
-    private final MarathonMappingService mappingService;
+    private final MappingService mappingService;
     /**
      * Date format of Marathon's events.
      */
     private final SimpleDateFormat dateFormat;
 
     @Autowired
-    protected AbstractEventConverter(MarathonMappingService mappingService) {
+    protected AbstractEventConverter(MappingService mappingService) {
         this.mappingService = mappingService;
         dateFormat = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'");
         dateFormat.setTimeZone(TimeZone.getTimeZone("UTC"));
@@ -47,7 +47,7 @@ public abstract class AbstractEventConverter<T extends AbstractEvent, U extends 
         return monitorEvent;
     }
 
-    protected MarathonMappingService getMappingService() {
+    protected MappingService getMappingService() {
         return mappingService;
     }
 

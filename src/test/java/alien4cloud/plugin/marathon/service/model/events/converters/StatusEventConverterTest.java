@@ -11,7 +11,7 @@ import org.junit.Test;
 
 import alien4cloud.paas.model.InstanceStatus;
 import alien4cloud.paas.model.PaaSInstanceStateMonitorEvent;
-import alien4cloud.plugin.marathon.service.MarathonMappingService;
+import alien4cloud.plugin.marathon.service.MappingService;
 import alien4cloud.plugin.marathon.service.model.events.status.HealthStatusChangedEvent;
 import alien4cloud.plugin.marathon.service.model.events.status.StatusUpdateEvent;
 import alien4cloud.plugin.marathon.service.model.mapping.MarathonAppsMapping;
@@ -23,12 +23,12 @@ import mesosphere.marathon.client.utils.ModelUtils;
 public class StatusEventConverterTest {
 
     private StatusEventConverter eventConverter;
-    private MarathonMappingService mockMappingService;
+    private MappingService mockMappingService;
     private MarathonAppsMapping mockAppMapping;
 
     @Before
     public void setUp() throws Exception {
-        mockMappingService = mock(MarathonMappingService.class);
+        mockMappingService = mock(MappingService.class);
         eventConverter = new StatusEventConverter(mockMappingService);
         mockAppMapping = new MarathonAppsMapping("alien-deployment-id");
         mockAppMapping.addAppToNodeTemplateMapping("my-app", "my-node-template");

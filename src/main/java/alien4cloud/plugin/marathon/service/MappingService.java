@@ -21,7 +21,7 @@ import lombok.extern.log4j.Log4j;
  */
 @Service
 @Log4j
-public class MarathonMappingService {
+public class MappingService {
 
     /**
      * For each groupId (eg. lower-cased PaaSDeploymentId), map a wrapper with the Alien deployment id and a Map of <AppIds, NodeTemplateIds>

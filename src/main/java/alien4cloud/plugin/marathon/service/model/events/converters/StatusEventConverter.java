@@ -6,7 +6,7 @@ import org.springframework.stereotype.Service;
 
 import alien4cloud.paas.model.InstanceStatus;
 import alien4cloud.paas.model.PaaSInstanceStateMonitorEvent;
-import alien4cloud.plugin.marathon.service.MarathonMappingService;
+import alien4cloud.plugin.marathon.service.MappingService;
 import alien4cloud.plugin.marathon.service.model.events.status.AbstractStatusEvent;
 import alien4cloud.plugin.marathon.service.model.events.status.HealthStatusChangedEvent;
 import alien4cloud.plugin.marathon.service.model.events.status.StatusUpdateEvent;
@@ -20,7 +20,7 @@ import alien4cloud.plugin.marathon.service.model.mapping.MarathonAppsMapping;
 @Service
 public class StatusEventConverter extends AbstractEventConverter<AbstractStatusEvent, PaaSInstanceStateMonitorEvent> {
 
-    public StatusEventConverter(MarathonMappingService mappingService) {
+    public StatusEventConverter(MappingService mappingService) {
         super(mappingService);
     }
 

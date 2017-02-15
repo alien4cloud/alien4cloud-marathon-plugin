@@ -4,7 +4,7 @@ import org.springframework.stereotype.Service;
 
 import alien4cloud.paas.model.DeploymentStatus;
 import alien4cloud.paas.model.PaaSDeploymentStatusMonitorEvent;
-import alien4cloud.plugin.marathon.service.MarathonMappingService;
+import alien4cloud.plugin.marathon.service.MappingService;
 import alien4cloud.plugin.marathon.service.model.events.deployments.AbstractDeploymentEvent;
 import alien4cloud.plugin.marathon.service.model.events.deployments.DeploymentFailedEvent;
 import alien4cloud.plugin.marathon.service.model.events.deployments.DeploymentInfoEvent;
@@ -19,7 +19,7 @@ import alien4cloud.plugin.marathon.service.model.mapping.AlienDeploymentMapping;
 @Service
 public class DeploymentEventConverter extends AbstractEventConverter<AbstractDeploymentEvent, PaaSDeploymentStatusMonitorEvent> {
 
-    public DeploymentEventConverter(MarathonMappingService mappingService) {
+    public DeploymentEventConverter(MappingService mappingService) {
         super(mappingService);
     }
 

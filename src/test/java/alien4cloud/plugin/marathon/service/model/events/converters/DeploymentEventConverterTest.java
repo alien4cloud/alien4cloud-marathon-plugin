@@ -11,7 +11,7 @@ import org.junit.Test;
 
 import alien4cloud.paas.model.DeploymentStatus;
 import alien4cloud.paas.model.PaaSDeploymentStatusMonitorEvent;
-import alien4cloud.plugin.marathon.service.MarathonMappingService;
+import alien4cloud.plugin.marathon.service.MappingService;
 import alien4cloud.plugin.marathon.service.model.events.deployments.DeploymentFailedEvent;
 import alien4cloud.plugin.marathon.service.model.events.deployments.DeploymentInfoEvent;
 import alien4cloud.plugin.marathon.service.model.events.deployments.DeploymentSuccessEvent;
@@ -24,7 +24,7 @@ import mesosphere.marathon.client.utils.ModelUtils;
 public class DeploymentEventConverterTest {
 
     private DeploymentEventConverter eventConverter;
-    private MarathonMappingService mockMappingService;
+    private MappingService mockMappingService;
 
     // Events from Marathon docs
     private final String deploymentInfoEvent = "{\n" +
@@ -105,7 +105,7 @@ public class DeploymentEventConverterTest {
 
     @Before
     public void setUp() {
-        mockMappingService = mock(MarathonMappingService.class);
+        mockMappingService = mock(MappingService.class);
         eventConverter = new DeploymentEventConverter(mockMappingService);
     }
 
