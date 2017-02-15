@@ -35,12 +35,6 @@ public class MarathonMappingService {
     private final Map<String, AlienDeploymentMapping> marathonToAlienDeploymentMap = Maps.newConcurrentMap();
 
     /**
-     * Orchestrator ID for this plugin instance
-     */
-    @Getter
-    private String orchestratorId;
-
-    /**
      * Register a running deployment into the MappingService.
      * @param marathonDeploymentId the id of the deployment in Marathon
      * @param alienDeploymentId the id of the deployment in Alien
@@ -54,8 +48,8 @@ public class MarathonMappingService {
         return Optional.ofNullable(marathonToAlienDeploymentMap.get(marathonDeploymentId));
     }
 
-    public Optional<AlienDeploymentMapping> getAndRemoveAlienDeploymentInfo(String marathonDeploymentId) {
-        return Optional.ofNullable(marathonToAlienDeploymentMap.remove(marathonDeploymentId));
+    public void removeAlienDeploymentInfo(String marathonDeploymentId) {
+        marathonToAlienDeploymentMap.remove(marathonDeploymentId);
     }
 
     void registerGroupMapping(String groupId, String alienDeploymentId) {

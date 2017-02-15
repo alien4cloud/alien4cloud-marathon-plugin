@@ -43,6 +43,7 @@ public class DeploymentEventConverter extends AbstractEventConverter<AbstractDep
         final PaaSDeploymentStatusMonitorEvent paaSDeploymentStatusMonitorEvent = this.fromMarathonEvent(marathonEvent);
 
         paaSDeploymentStatusMonitorEvent.setDeploymentStatus(DeploymentStatus.FAILURE);
+        getMappingService().removeAlienDeploymentInfo(marathonEvent.getId());
         return paaSDeploymentStatusMonitorEvent;
     }
 
@@ -61,6 +62,7 @@ public class DeploymentEventConverter extends AbstractEventConverter<AbstractDep
                 paaSDeploymentStatusMonitorEvent.setDeploymentStatus(DeploymentStatus.UNKNOWN);
         }
 
+        getMappingService().removeAlienDeploymentInfo(marathonEvent.getId());
         return paaSDeploymentStatusMonitorEvent;
     }
 
