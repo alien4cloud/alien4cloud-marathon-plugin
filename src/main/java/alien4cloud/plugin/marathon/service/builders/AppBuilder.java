@@ -3,6 +3,7 @@ package alien4cloud.plugin.marathon.service.builders;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
+import lombok.Getter;
 import lombok.extern.log4j.Log4j;
 import mesosphere.marathon.client.model.v2.*;
 import org.springframework.util.StringUtils;
@@ -14,25 +15,35 @@ import org.springframework.util.StringUtils;
 public class AppBuilder {
     private App app;
 
+    // Keeping IDs is useful when building dependencies
+    @Getter
+    private String parentGroupID;
+    @Getter String appID;
+
     private AppBuilder(String id) {
         // Initialize the app as a docker container
         this.app = new App();
-        app.setId(id.toLowerCase());
+        appID = id.toLowerCase();
         Container container = new Container();
         app.setContainer(container);
     }
     
     public App build() {
-        assert !StringUtils.isEmpty(app.getId());
         assert app.getContainer().getDocker() == null || !StringUtils.isEmpty(app.getContainer().getDocker().getImage());
-        if (!app.getId().matches("^(([a-z0-9]|[a-z0-9][a-z0-9\\-]*[a-z0-9])\\.)*([a-z0-9]|[a-z0-9][a-z0-9\\-]*[a-z0-9])|(\\.|\\.\\.)$")) {
+        if (!appID.matches("^(([a-z0-9]|[a-z0-9][a-z0-9\\-]*[a-z0-9])\\.)*([a-z0-9]|[a-z0-9][a-z0-9\\-]*[a-z0-9])|(\\.|\\.\\.)$")) {
             throw new IllegalArgumentException("Node ID is invalid. Allowed: lowercase letters, digits, hyphens, \".\", \"..\"");
         }
+        app.setId(appID);
         return this.app;
     }
 
     public static AppBuilder builder(String id) {
         return new AppBuilder(id);
+    }
+
+    public AppBuilder parentGroupID(String parentGroupID) {
+        this.parentGroupID = parentGroupID;
+        return this;
     }
 
     public AppBuilder docker(String image) {

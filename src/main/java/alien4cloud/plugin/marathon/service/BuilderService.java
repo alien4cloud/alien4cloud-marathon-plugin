@@ -38,8 +38,6 @@ import mesosphere.marathon.client.model.v2.Group;
  * Service for transformation of Alien PaaSTopologies into Marathon Groups and Apps definitions.
  * Currently only Docker containers are supported.
  *
- * TODO: Split the massive buildAppDefinition method (see the builder branch)
- *
  * @author Adrian Fraisse
  */
 @Service
@@ -70,12 +68,12 @@ public class BuilderService {
         // Setup parent group
         Group parentGrp = new Group();
         // Group id == pass topology deployment id.
-        final String groupId = paaSTopologyDeploymentContext.getDeploymentPaaSId().toLowerCase();
-        parentGrp.setId(groupId);
+        final String groupID = paaSTopologyDeploymentContext.getDeploymentPaaSId().toLowerCase();
+        parentGrp.setId(groupID);
         parentGrp.setApps(Lists.newArrayList());
 
         // Initialize a new group mapping
-        mappingService.registerGroupMapping(groupId, paaSTopologyDeploymentContext.getDeploymentId());
+        mappingService.registerGroupMapping(groupID, paaSTopologyDeploymentContext.getDeploymentId());
 
         // Marathon topologies contain only non-natives nodes (eg. apps) and volumes.
         // Each non-native node (and eventually, its attached volumes) are converted to a Marathon App
@@ -91,10 +89,10 @@ public class BuilderService {
                             .map(paaSRelationshipTemplate -> paaSRelationshipTemplate.getTemplate().getTarget()).orElse("").equals(node.getId()))
                     .collect(Collectors.toList());
             // Build the app definition and add it to the group
-            final App app = buildAppDefinition(node, paaSTopologyDeploymentContext.getPaaSTopology(), attachedVolumes);
+            final App app = buildAppDefinition(groupID, node, paaSTopologyDeploymentContext.getPaaSTopology(), attachedVolumes);
             parentGrp.getApps().add(app);
             // Register app mapping
-            mappingService.registerAppMapping(groupId, app.getId(), node.getId());
+            mappingService.registerAppMapping(groupID, app.getId(), node.getId());
         });
 
         // Clean the port endpoints map
@@ -110,7 +108,7 @@ public class BuilderService {
      * @param paaSTopology the topology the node belongs to
      * @return a Marathon App definition
      */
-    private App buildAppDefinition(PaaSNodeTemplate paaSNodeTemplate, PaaSTopology paaSTopology, List<PaaSNodeTemplate> volumeNodeTemplates) {
+    private App buildAppDefinition(String parentGroupID, PaaSNodeTemplate paaSNodeTemplate, PaaSTopology paaSTopology, List<PaaSNodeTemplate> volumeNodeTemplates) {
         final NodeTemplate nodeTemplate = paaSNodeTemplate.getTemplate();
 
         /*
@@ -121,6 +119,7 @@ public class BuilderService {
 
         // Initialize the App builder - A docker app with default healthcheck enabled.
         AppBuilder appBuilder = AppBuilder.builder(paaSNodeTemplate.getId())
+                .parentGroupID(parentGroupID)
                 .instances(Optional.ofNullable(paaSNodeTemplate.getScalingPolicy()).orElse(ScalingPolicy.NOT_SCALABLE_POLICY).getInitialInstances())
                 .docker(Optional.ofNullable(createOperation.getImplementationArtifact())
                     .map(AbstractArtifact::getArtifactRef)
@@ -133,7 +132,7 @@ public class BuilderService {
          * Each relationship implies the need to create a service port for the targeted capability.
          * We keep track of service ports allocated to relationships' targets in order to allocate only one port per capability.
          */
-        buildDependenciesDefinition(nodeTemplate.getRelationships(), appBuilder);
+        buildDependenciesDefinition(paaSNodeTemplate.getRelationshipTemplates(), appBuilder);
 
         /*
          * External persistent Docker volumes using the RexRay driver
@@ -160,7 +159,7 @@ public class BuilderService {
                 if (val instanceof FunctionPropertyValue && "get_property".equals(((FunctionPropertyValue) val).getFunction())
                         && "REQ_TARGET".equals(((FunctionPropertyValue) val).getTemplateName()))
                     // Get property of a requirement's targeted capability
-                    getPropertyFromReqTarget(paaSNodeTemplate, paaSTopology, (FunctionPropertyValue) val).ifPresent(value -> appBuilder.input(key, value));
+                    getPropertyFromReqTarget(paaSNodeTemplate, paaSTopology, (FunctionPropertyValue) val, parentGroupID).ifPresent(value -> appBuilder.input(key, value));
                 else if (val instanceof ScalarPropertyValue)
                     appBuilder.input(key, ((ScalarPropertyValue) val).getValue());
 
@@ -171,7 +170,6 @@ public class BuilderService {
          * USER DEFINED PROPERTIES
          */
         buildUserPropsDefinition(nodeTemplate.getProperties(), appBuilder);
-
 
         return appBuilder.build();
     }
@@ -210,8 +208,8 @@ public class BuilderService {
         capabilities.forEach((name, capability) -> {
             if (capability.getType().contains("capabilities.endpoint")) { // FIXME : better check of capability types
 
-                // TODO: Attribute service port only if necessary, eg. the capability is NOT targeted or ports are NOT statically allocated
-                final String endpointID = appId.concat(name);
+                // TODO: Attribute service port only if necessary, eg. the capability is targeted and ports are not statically allocated
+                final String endpointID = appBuilder.getParentGroupID() + "/" + appId + "/" + name;
                 final Integer servicePort = mapPortEndpoints.getOrDefault(endpointID, this.servicePortIncrement.getAndIncrement()); // If this node's capability is targeted by a relationship, we may already have pre-allocated a service port for it
                 mapPortEndpoints.put(endpointID, servicePort); // Store the endpoint for further use by other apps
 
@@ -229,12 +227,12 @@ public class BuilderService {
                                     .get("docker_bridge_port_mapping"))
                                     .getValue())
                                     .map(Integer::valueOf)
-                                    .orElse(0))
+                                    .orElse(0)) // If not value is present, let Marathon decide
                     .tcp();
                 } else
                     appBuilder.hostNetworking();
 
-                // TODO: set haproxy group only if necessary.
+                // TODO: set haproxy group only if necessary, eg. if there's a service port.
                 // The HAPROXY_GROUP label indicates which load balancer group this application should register to.
                 appBuilder.portMapping(portBuilder.build()).internallyLoadBalanced();
             }
@@ -242,18 +240,20 @@ public class BuilderService {
         return appBuilder;
     }
 
-    private AppBuilder buildDependenciesDefinition(Map<String, RelationshipTemplate> relationships, AppBuilder appBuilder) {
+    private AppBuilder buildDependenciesDefinition(List<PaaSRelationshipTemplate> relationships, AppBuilder appBuilder) {
         if (relationships != null) { // Get all the relationships this node is a source of
-            relationships.forEach((key, relationshipTemplate) -> {
-                // TODO: We should validate that the targeted node is of Docker type and better check the relationship type
-                if ("tosca.relationships.ConnectsTo".equalsIgnoreCase(relationshipTemplate.getType())) {
-                    if (!mapPortEndpoints.containsKey(relationshipTemplate.getTarget().concat(relationshipTemplate.getTargetedCapabilityName()))) {
+            relationships.stream().filter(rel -> rel.getSource().equalsIgnoreCase(appBuilder.getAppID())).forEach(relationshipTemplate -> {
+                // TODO: Validate that the targeted node is of Docker type (for hybrid topologies)
+                if (relationshipTemplate.instanceOf("tosca.relationships.ConnectsTo")) {
+                    final RelationshipTemplate template = relationshipTemplate.getTemplate();
+                    final String endpointID = appBuilder.getParentGroupID() + "/" + template.getTarget().toLowerCase() + "/" + template.getTargetedCapabilityName();
+                    if (!mapPortEndpoints.containsKey(endpointID)) {
                         // We haven't processed the target already: we pre-allocate a service port
-                        mapPortEndpoints.put(relationshipTemplate.getTarget().concat(relationshipTemplate.getTargetedCapabilityName()),
+                        mapPortEndpoints.put(endpointID,
                                 this.servicePortIncrement.getAndIncrement());
                     }
                     // Add a dependency to the target
-                    appBuilder.dependency(relationshipTemplate.getTarget().toLowerCase());
+                    appBuilder.dependency(template.getTarget().toLowerCase());
                 }
             });
         }
@@ -270,8 +270,8 @@ public class BuilderService {
                         .map(PaaSRelationshipTemplate::getTemplate).map(RelationshipTemplate::getProperties)
                         .map(relationshipProps -> ((ScalarPropertyValue) relationshipProps.get("container_path"))).map(ScalarPropertyValue::getValue)
                         .orElseThrow(() -> new InvalidArgumentException("A container path must be provided to mount a volume to a container.")))
-                    .name(Optional.ofNullable(((ScalarPropertyValue) volumeTemplateProperties.get("volume_name"))) // FIXME: Should persist and manage volume names
-                            .map(ScalarPropertyValue::getValue).orElse("FIXME"))
+                    .name(Optional.ofNullable(((ScalarPropertyValue) volumeTemplateProperties.get("volume_name")))
+                            .map(ScalarPropertyValue::getValue).orElse(null)) // TODO: Should persist and manage volume names
                     .size(Optional.ofNullable(((ScalarPropertyValue) volumeTemplateProperties.get("size")))
                             .map(ScalarPropertyValue::getValue)
                             .filter(s -> s.matches("^[1-9][0-9]*\\s(GiB|GB)$"))
@@ -290,7 +290,7 @@ public class BuilderService {
      * @param params the function parameters, e.g. the requirement name & property name to lookup.
      * @return a String representing the property value.
      */
-    private Optional<String> getPropertyFromReqTarget(PaaSNodeTemplate paaSNodeTemplate, PaaSTopology paaSTopology, FunctionPropertyValue params) {
+    private Optional<String> getPropertyFromReqTarget(PaaSNodeTemplate paaSNodeTemplate, PaaSTopology paaSTopology, FunctionPropertyValue params, String deploymentID) {
         // Search for the requirement's target by filter the relationships' templates of this node.
         // If a target is found, then lookup for the given property name in its capabilities.
         // For Docker containers X Marathon, the orchestrator replaces the PORT and IP_ADDRESS by the target's service port and the load balancer hostname
@@ -311,15 +311,18 @@ public class BuilderService {
 
                     if (relationshipTemplate.instanceOf("tosca.relationships.ConnectsTo")) {
                         // Special marathon case: use service ports if the "Port" property is required.
+                        final String endpointID = deploymentID + "/" + target.toLowerCase() + "/" + targetedCapabilityName;
                         if ("port".equalsIgnoreCase(propertyName)) {
                             // Retrieve service port if exists - if not, get capability value (for use cases where ports are statically defined)
                             // Service ports are mapped using the targetName + capabilityName
-                            return Optional.ofNullable(mapPortEndpoints.get(target + targetedCapabilityName)).map(String::valueOf)
+                            return Optional.ofNullable(mapPortEndpoints.get(endpointID)).map(String::valueOf)
                                     .orElse(FunctionEvaluator.evaluateGetPropertyFunction(functionPropertyValue, relationshipTemplate, paaSTopology.getAllNodes()));
                         } else if ("ip_address".equalsIgnoreCase(propertyName))
                             // Special marathon case: return marathon-lb hostname if an ip_address is required.
                             // If there is no service port, we return <target_app_id>.marathon.mesos for DNS resolution
-                            return "marathon-lb.marathon.mesos";
+                            return mapPortEndpoints.get(endpointID) != null ?
+                                    "marathon-lb.marathon.mesos" :
+                                    target.toLowerCase() + "." + deploymentID + ".marathon.mesos";
                     }
                     // Nominal case
                     return FunctionEvaluator.evaluateGetPropertyFunction(functionPropertyValue, relationshipTemplate, paaSTopology.getAllNodes());
