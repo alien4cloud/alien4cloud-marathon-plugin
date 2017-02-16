@@ -39,6 +39,7 @@ public class AppBuilder {
         Docker docker = new Docker();
         docker.setImage(image);
         app.getContainer().setDocker(docker);
+        app.getContainer().setType("DOCKER");
         return this;
     }
 
