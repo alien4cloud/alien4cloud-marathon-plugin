@@ -1,5 +1,6 @@
 package alien4cloud.plugin.marathon.service;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -46,12 +47,11 @@ import mesosphere.marathon.client.model.v2.Group;
 @Log4j
 public class BuilderService {
 
-    private final @NonNull
-    MappingService mappingService;
+    private final @NonNull MappingService mappingService;
 
     /**
      * We allocate Service Ports starting from 10000.
-     * TODO: Store in DB or retrieve from Marathon. Alternatively, we could let Marathon randomly allocate a Service Port then poll for its value.
+     * TODO: Store in DB or retrieve from Marathon
      */
     private final AtomicInteger servicePortIncrement = new AtomicInteger(10000);
 
@@ -79,8 +79,10 @@ public class BuilderService {
 
         // Marathon topologies contain only non-natives nodes (eg. apps) and volumes.
         // Each non-native node (and eventually, its attached volumes) are converted to a Marathon App
-        final List<PaaSNodeTemplate> nonNatives = paaSTopologyDeploymentContext.getPaaSTopology().getNonNatives();
-        final List<PaaSNodeTemplate> volumes = paaSTopologyDeploymentContext.getPaaSTopology().getVolumes();
+        final List<PaaSNodeTemplate> nonNatives = Optional.ofNullable(paaSTopologyDeploymentContext.getPaaSTopology().getNonNatives())
+                .orElseThrow(() -> new InvalidArgumentException("The topology does not contain any non-native nodes."));
+        final List<PaaSNodeTemplate> volumes = Optional.ofNullable(paaSTopologyDeploymentContext.getPaaSTopology().getVolumes())
+                .orElse(Collections.emptyList());
         nonNatives.forEach(node -> {
             // Find volumes attached to the node
             final List<PaaSNodeTemplate> attachedVolumes = volumes.stream()
@@ -126,31 +128,6 @@ public class BuilderService {
                 ).defaultHealthCheck();
 
         /*
-         * INPUTS from the Create operation
-         */
-        /* Prefix-based mapping : ENV_ => Env var, OPT_ => docker option, ARG_ => Docker run args */
-        if (createOperation.getInputParameters() != null) {
-            createOperation.getInputParameters().forEach((key, val) -> {
-
-                // Inputs can either be a ScalarValue or a pointer to a capability targeted by one of the node's requirements
-                String value = ""; // TODO: This should be generalized into Alien parser
-                if (val instanceof FunctionPropertyValue && "get_property".equals(((FunctionPropertyValue) val).getFunction())
-                        && "REQ_TARGET".equals(((FunctionPropertyValue) val).getTemplateName())) {
-                    // Get property of a requirement's targeted capability
-                    value = getPropertyFromReqTarget(paaSNodeTemplate, paaSTopology, (FunctionPropertyValue) val);
-                } else if (val instanceof ScalarPropertyValue)
-                    value = ((ScalarPropertyValue) val).getValue();
-
-                appBuilder.input(key, value);
-            });
-        }
-
-        /*
-         * External persistent Docker volumes using the RexRay driver
-         */
-        buildVolumesDefinition(volumeNodeTemplates, appBuilder);
-
-        /*
          * RELATIONSHIPS
          * Only connectsTo relationships are supported : an app can only connect to a container endpoint.
          * Each relationship implies the need to create a service port for the targeted capability.
@@ -158,6 +135,10 @@ public class BuilderService {
          */
         buildDependenciesDefinition(nodeTemplate.getRelationships(), appBuilder);
 
+        /*
+         * External persistent Docker volumes using the RexRay driver
+         */
+        buildVolumesDefinition(volumeNodeTemplates, appBuilder);
 
         /*
          * CAPABILITIES
@@ -166,6 +147,25 @@ public class BuilderService {
          * Register the app into the internal service discovery group.
          */
         buildPortDefinition(nodeTemplate.getCapabilities(), paaSNodeTemplate.getId(), appBuilder);
+
+        /*
+         * INPUTS from the Create operation
+         */
+        /* Prefix-based mapping : ENV_ => Env var, OPT_ => docker option, ARG_ => Docker run args */
+        if (createOperation.getInputParameters() != null) {
+            createOperation.getInputParameters().forEach((key, val) -> {
+
+                // Inputs can either be a ScalarValue or a pointer to a capability targeted by one of the node's requirements
+                // NOTE: This could be generalized into Alien parser
+                if (val instanceof FunctionPropertyValue && "get_property".equals(((FunctionPropertyValue) val).getFunction())
+                        && "REQ_TARGET".equals(((FunctionPropertyValue) val).getTemplateName()))
+                    // Get property of a requirement's targeted capability
+                    getPropertyFromReqTarget(paaSNodeTemplate, paaSTopology, (FunctionPropertyValue) val).ifPresent(value -> appBuilder.input(key, value));
+                else if (val instanceof ScalarPropertyValue)
+                    appBuilder.input(key, ((ScalarPropertyValue) val).getValue());
+
+            });
+        }
 
         /*
          * USER DEFINED PROPERTIES
@@ -210,7 +210,7 @@ public class BuilderService {
         capabilities.forEach((name, capability) -> {
             if (capability.getType().contains("capabilities.endpoint")) { // FIXME : better check of capability types
 
-                // TODO: Attribute service port only if necessary, eg. the capability is NOT targeted or if ports are statically allocated
+                // TODO: Attribute service port only if necessary, eg. the capability is NOT targeted or ports are NOT statically allocated
                 final String endpointID = appId.concat(name);
                 final Integer servicePort = mapPortEndpoints.getOrDefault(endpointID, this.servicePortIncrement.getAndIncrement()); // If this node's capability is targeted by a relationship, we may already have pre-allocated a service port for it
                 mapPortEndpoints.put(endpointID, servicePort); // Store the endpoint for further use by other apps
@@ -234,7 +234,8 @@ public class BuilderService {
                 } else
                     appBuilder.hostNetworking();
 
-                // TODO: set haproxy group only if necessary. The HAPROXY_GROUP label indicates which load balancer group this application should register to.
+                // TODO: set haproxy group only if necessary.
+                // The HAPROXY_GROUP label indicates which load balancer group this application should register to.
                 appBuilder.portMapping(portBuilder.build()).internallyLoadBalanced();
             }
         });
@@ -245,7 +246,7 @@ public class BuilderService {
         if (relationships != null) { // Get all the relationships this node is a source of
             relationships.forEach((key, relationshipTemplate) -> {
                 // TODO: We should validate that the targeted node is of Docker type and better check the relationship type
-                if ("tosca.relationships.connectsto".equalsIgnoreCase(relationshipTemplate.getType())) {
+                if ("tosca.relationships.ConnectsTo".equalsIgnoreCase(relationshipTemplate.getType())) {
                     if (!mapPortEndpoints.containsKey(relationshipTemplate.getTarget().concat(relationshipTemplate.getTargetedCapabilityName()))) {
                         // We haven't processed the target already: we pre-allocate a service port
                         mapPortEndpoints.put(relationshipTemplate.getTarget().concat(relationshipTemplate.getTargetedCapabilityName()),
@@ -289,12 +290,11 @@ public class BuilderService {
      * @param params the function parameters, e.g. the requirement name & property name to lookup.
      * @return a String representing the property value.
      */
-    private String getPropertyFromReqTarget(PaaSNodeTemplate paaSNodeTemplate, PaaSTopology paaSTopology, FunctionPropertyValue params) {
+    private Optional<String> getPropertyFromReqTarget(PaaSNodeTemplate paaSNodeTemplate, PaaSTopology paaSTopology, FunctionPropertyValue params) {
         // Search for the requirement's target by filter the relationships' templates of this node.
         // If a target is found, then lookup for the given property name in its capabilities.
         // For Docker containers X Marathon, the orchestrator replaces the PORT and IP_ADDRESS by the target's service port and the load balancer hostname
         // respectively.
-
         String requirementName = params.getCapabilityOrRequirementName();
         String propertyName = params.getElementNameToFetch();
 
@@ -302,24 +302,28 @@ public class BuilderService {
                 .filter(item -> paaSNodeTemplate.getId().equals(item.getSource()) && requirementName.equals(item.getTemplate().getRequirementName()))
                 .findFirst() // Find the first relationship template which fulfills the given requirement, for this source
                 .map(relationshipTemplate -> {
+                    final String target = relationshipTemplate.getTemplate().getTarget();
+                    final String targetedCapabilityName = relationshipTemplate.getTemplate().getTargetedCapabilityName();
 
-                    if (relationshipTemplate.instanceOf("tosca.relationships.ConnectsTo")) { // - TODO/FIXME : check target derived from docker type
+                    // Nominal case : get the requirement's targeted capability property using the relationship as source.
+                    FunctionPropertyValue functionPropertyValue =
+                            new FunctionPropertyValue(params.getFunction(), Lists.newArrayList("TARGET", targetedCapabilityName, propertyName));
+
+                    if (relationshipTemplate.instanceOf("tosca.relationships.ConnectsTo")) {
                         // Special marathon case: use service ports if the "Port" property is required.
-                        if ("port".equalsIgnoreCase(propertyName))
-                            // TODO: Retrieve service port if exists - if not, get capability value (for use cases where ports are statically defined)
-                            return String.valueOf( // Service ports are mapped using the targetName + capabilityName
-                                    mapPortEndpoints.getOrDefault(
-                                            relationshipTemplate.getTemplate().getTarget() + relationshipTemplate.getTemplate().getTargetedCapabilityName(),
-                                            0));
-                        else if ("ip_address".equalsIgnoreCase(propertyName))
-                            // TODO: If there is no service port, return <target_app_id>.marathon.mesos for DNS resolution
+                        if ("port".equalsIgnoreCase(propertyName)) {
+                            // Retrieve service port if exists - if not, get capability value (for use cases where ports are statically defined)
+                            // Service ports are mapped using the targetName + capabilityName
+                            return Optional.ofNullable(mapPortEndpoints.get(target + targetedCapabilityName)).map(String::valueOf)
+                                    .orElse(FunctionEvaluator.evaluateGetPropertyFunction(functionPropertyValue, relationshipTemplate, paaSTopology.getAllNodes()));
+                        } else if ("ip_address".equalsIgnoreCase(propertyName))
                             // Special marathon case: return marathon-lb hostname if an ip_address is required.
+                            // If there is no service port, we return <target_app_id>.marathon.mesos for DNS resolution
                             return "marathon-lb.marathon.mesos";
                     }
-                    // Nominal case : get the requirement's targeted capability property.
-                    // TODO: Add the REQ_TARGET keyword in the evaluateGetProperty function so this is evaluated at parsing
-                    return FunctionEvaluator.evaluateGetPropertyFunction(params, paaSNodeTemplate, paaSTopology.getAllNodes());
-                }).orElse("");
+                    // Nominal case
+                    return FunctionEvaluator.evaluateGetPropertyFunction(functionPropertyValue, relationshipTemplate, paaSTopology.getAllNodes());
+                });
     }
 
 }
