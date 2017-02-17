@@ -46,11 +46,9 @@ import mesosphere.marathon.client.utils.MarathonException;
 @Scope("prototype")
 public class MarathonOrchestrator implements IOrchestratorPlugin<MarathonConfig> {
 
-    private final @NonNull
-    BuilderService builderService;
+    private final @NonNull BuilderService builderService;
 
-    private final @NonNull
-    MappingService mappingService;
+    private final @NonNull MappingService mappingService;
 
     private final @NonNull EventService eventService;
 
