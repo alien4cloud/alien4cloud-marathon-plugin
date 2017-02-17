@@ -6,7 +6,7 @@
         <version>1.4.0-SNAPSHOT</version>
     </parent>
     <artifactId>alien4cloud-marathon-plugin</artifactId>
-    <version>1.4.0-SNAPSHOT</version>
+    <version>1.4.0-SM3-SNAPSHOT</version>
     <name>Alien 4 Cloud Marathon plugin</name>
     <description>This project is a plugin to use Marathon / Mesos as an orchestrator for Alien 4 Cloud.</description>
     <dependencies>
