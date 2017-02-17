@@ -1,7 +1,7 @@
 package alien4cloud.plugin.marathon.service.model.events.status;
 
+import alien4cloud.plugin.marathon.service.model.events.AbstractEvent;
 import lombok.Getter;
-import lombok.NoArgsConstructor;
 import lombok.Setter;
 import lombok.ToString;
 
@@ -10,10 +10,8 @@ import lombok.ToString;
  */
 @Getter
 @Setter
-@NoArgsConstructor
 @ToString
-public class StatusUpdateEvent extends AbstractStatusEvent {
-    private String slaveId;
-    private String taskStatus;
-    private String host;
+public abstract class AbstractStatusEvent extends AbstractEvent {
+    private String appId;
+    private String taskId;
 }
