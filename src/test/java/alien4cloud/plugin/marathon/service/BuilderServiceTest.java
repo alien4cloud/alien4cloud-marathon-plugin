@@ -149,7 +149,6 @@ public class BuilderServiceTest {
         // workaround ExternalVumeInfo has no getters
         final Gson gson = new Gson();
         final JsonObject external = gson.fromJson(gson.toJson(volDef), JsonObject.class).getAsJsonObject("external");
-        assertEquals("The volume's size matches the volume node property", Integer.valueOf(1), Integer.valueOf(external.get("size").getAsInt()));
         assertEquals("The volume's name matches the volume node property","extdockervolume", external.get("name").getAsString());
         assertEquals("External volumes use the docker volume driver isolator","dvdi", external.get("provider").getAsString());
         assertEquals("The plugin leverages the rexray driver","rexray", external.getAsJsonObject("options").get("dvdi/driver").getAsString());
