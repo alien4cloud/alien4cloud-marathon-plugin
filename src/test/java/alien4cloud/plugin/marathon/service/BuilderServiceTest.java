@@ -59,41 +59,41 @@ public class BuilderServiceTest {
         PaaSTopologyDeploymentContext context = preparePaaSContext(Lists.newArrayList(singleNodeTemplate), null);
 
         final Group groupDefinition = builderService.buildGroupDefinition(context);
-        assertNotNull(groupDefinition);
-        assertEquals("test-marathon-deployment", groupDefinition.getId());
-        assertNull(groupDefinition.getDependencies());
-        assertNull(groupDefinition.getGroups());
-        assertNotNull(groupDefinition.getApps());
-        assertEquals(1, groupDefinition.getApps().size());
+        assertNotNull("An alien deployment is converted into a Marathon group", groupDefinition);
+        assertEquals("The group's id matches the deployment id, lower cased","test-marathon-deployment", groupDefinition.getId());
+        assertNull("Inner groups are not supported", groupDefinition.getGroups());
+        assertNull("No inner groups implies there should never have dependencies at the group level", groupDefinition.getDependencies());
+        assertNotNull("Each node in the topology is represented by an App in the group", groupDefinition.getApps());
+        assertEquals("One node eq. one app",1, groupDefinition.getApps().size());
 
         final App appDefinition = groupDefinition.getApps().iterator().next();
         // App basics
-        assertEquals("single-node-template", appDefinition.getId());
-        assertEquals(Double.valueOf(1.0), appDefinition.getCpus());
-        assertEquals(Double.valueOf(256.0), appDefinition.getMem());
-        assertNull(appDefinition.getDependencies());
-        assertNull(appDefinition.getEnv());
-        assertNotNull(appDefinition.getContainer());
-        assertNotNull(appDefinition.getContainer().getDocker());
-        assertEquals("DOCKER", appDefinition.getContainer().getType());
+        assertEquals("The app's id matches the node id, lower cased","single-node-template", appDefinition.getId());
+        assertEquals("CPU requirement is a property of the node", Double.valueOf(1.0), appDefinition.getCpus());
+        assertEquals("MEM requirement is a property of the node", Double.valueOf(256.0), appDefinition.getMem());
+        assertNull("Dependencies modify deployment wkfl - no relationships eg. no dependencies", appDefinition.getDependencies());
+        assertNull("Env variables can be defined as user properties or as create operation inputs", appDefinition.getEnv());
+        assertNotNull("A marathon app always has a container - either mesos or docker", appDefinition.getContainer());
+        assertNotNull("The plugin only supports Docker containers atm", appDefinition.getContainer().getDocker());
+        assertEquals("Type should be DOCKER","DOCKER", appDefinition.getContainer().getType());
         assertNull(appDefinition.getContainer().getVolumes());
-        assertEquals("internal", appDefinition.getLabels().get("HAPROXY_GROUP"));
-        assertEquals(Integer.valueOf(1), appDefinition.getInstances());
+        assertEquals("Internal load balancing within the cluster","internal", appDefinition.getLabels().get("HAPROXY_GROUP"));
+        assertEquals("App's initial instances value matches the node scaling policy", Integer.valueOf(1), appDefinition.getInstances());
 
         // Docker definition
         Docker dockerDefinition = appDefinition.getContainer().getDocker();
-        assertEquals("docker-img", dockerDefinition.getImage());
-        assertEquals("HOST", dockerDefinition.getNetwork());
-        assertNull(dockerDefinition.getParameters());
+        assertEquals("The app's docker definition must have a docker-img","docker-img", dockerDefinition.getImage());
+        assertEquals("HOST networking is used when containers ports are directly exposed throughout marathon","HOST", dockerDefinition.getNetwork());
+        assertNull("Parameters to the docker run cmd are defined at the user level or at as create operation inputs", dockerDefinition.getParameters());
         Port portDefinition = dockerDefinition.getPortMappings().iterator().next();
-        assertEquals(Integer.valueOf(12345), portDefinition.getContainerPort());
+        assertEquals("For host networking, the container port should be set statically", Integer.valueOf(12345), portDefinition.getContainerPort());
         assertNull(portDefinition.getHostPort());
         assertNull(portDefinition.getProtocol());
-        assertEquals(Integer.valueOf(10000), portDefinition.getServicePort());
+        assertEquals("A marathonLB service port is always attributed by the plugin", Integer.valueOf(10000), portDefinition.getServicePort());
 
         // Healthcheck
         HealthCheck healthCheck = appDefinition.getHealthChecks().get(0);
-        assertNotNull(healthCheck);
+        assertNotNull("A default http healthcheck is setup for each app", healthCheck);
 
         verify(mockMappingService).registerAppMapping("test-marathon-deployment", "single-node-template", "Single-Node-Template");
     }
@@ -102,6 +102,7 @@ public class BuilderServiceTest {
 
     @Test
     public void testBuildNodeWithVolumeTopology() throws Exception {
+        // Create a external volume node template
         final NodeTemplate volume = new NodeTemplate();
         volume.setName("extvolume");
         volume.setProperties(Maps.newHashMap());
@@ -114,6 +115,7 @@ public class BuilderServiceTest {
         attachmentRequirement.setType("alien.capabilities.DockerVolumeAttachment");
         volume.getRequirements().put("attachment", attachmentRequirement);
 
+        // Mount the volume to a node using the MountDockerVolume relationship
         volume.setRelationships(Maps.newHashMap());
         final RelationshipTemplate relationshipTemplate = new RelationshipTemplate();
         relationshipTemplate.setType("alien.relationships.MountDockerVolume");
@@ -139,18 +141,17 @@ public class BuilderServiceTest {
 
         final App appDefinition = builderService.buildGroupDefinition(context).getApps().iterator().next();
 
-        assertEquals(Integer.valueOf(1), appDefinition.getInstances());
+        assertEquals("When an external volume is attached to it, apps can only be scaled to 1 instance", Integer.valueOf(1), appDefinition.getInstances());
         final ExternalVolume volDef = (ExternalVolume) appDefinition.getContainer().getVolumes().iterator().next();
-        assertEquals("RW", volDef.getMode());
-        assertEquals("path/volume", volDef.getContainerPath());
+        assertEquals("volumes are read/write by default","RW", volDef.getMode());
+        assertEquals("The volume's container path matches the mounting relationship property","path/volume", volDef.getContainerPath());
 
         // workaround ExternalVumeInfo has no getters
         final Gson gson = new Gson();
         final JsonObject external = gson.fromJson(gson.toJson(volDef), JsonObject.class).getAsJsonObject("external");
-        assertEquals(Integer.valueOf(1), Integer.valueOf(external.get("size").getAsInt()));
-        assertEquals("extdockervolume", external.get("name").getAsString());
-        assertEquals("dvdi", external.get("provider").getAsString());
-        assertEquals("rexray", external.getAsJsonObject("options").get("dvdi/driver").getAsString());
+        assertEquals("The volume's name matches the volume node property","extdockervolume", external.get("name").getAsString());
+        assertEquals("External volumes use the docker volume driver isolator","dvdi", external.get("provider").getAsString());
+        assertEquals("The plugin leverages the rexray driver","rexray", external.getAsJsonObject("options").get("dvdi/driver").getAsString());
     }
 
     @Test
@@ -178,18 +179,18 @@ public class BuilderServiceTest {
 
         /* If on port is bridged then all ports are bridged */
         final Docker dockerDefinition = appDefinition.getContainer().getDocker();
-        assertEquals("BRIDGE", dockerDefinition.getNetwork());
+        assertEquals("If a container has one or more bridged port mappings, then the container network is bridged","BRIDGE", dockerDefinition.getNetwork());
 
         /* Verify port mappings */
         final Iterator<Port> portIterator = dockerDefinition.getPortMappings().iterator();
         final Port firstPortMapping = portIterator.next();
-        assertEquals(Integer.valueOf(12345), firstPortMapping.getContainerPort());
+        assertEquals("If only a container port is prodived, the host port will be randomized by marathon", Integer.valueOf(12345), firstPortMapping.getContainerPort());
         assertEquals(Integer.valueOf(10000), firstPortMapping.getServicePort());
         final Port secondPortMapping = portIterator.next();
-        assertEquals("tcp", secondPortMapping.getProtocol());
-        assertEquals(Integer.valueOf(6789), secondPortMapping.getContainerPort());
-        assertEquals(Integer.valueOf(54321), secondPortMapping.getHostPort());
-        assertEquals(Integer.valueOf(10001), secondPortMapping.getServicePort());
+        assertEquals("Bridge ports use TCP","tcp", secondPortMapping.getProtocol());
+        assertEquals("Container port definition matches the connects to relationship properties", Integer.valueOf(6789), secondPortMapping.getContainerPort());
+        assertEquals("Container port definition matches the connects to relationship properties", Integer.valueOf(54321), secondPortMapping.getHostPort());
+        assertEquals("A service port is attributed for bridged containers also", Integer.valueOf(10001), secondPortMapping.getServicePort());
 
         verify(mockMappingService).registerAppMapping("test-marathon-deployment", "single-node-template", "Single-Node-Template");
     }
@@ -244,13 +245,13 @@ public class BuilderServiceTest {
         final Iterator<App> appIterator = groupDefinition.getApps().iterator();
         final App sourceApp = appIterator.next();
         final App targetApp = appIterator.next();
-        assertEquals("target-template", sourceApp.getDependencies().iterator().next());
-        assertNull(targetApp.getDependencies());
+        assertEquals("The source app has a dependency toward the target app", "target-template", sourceApp.getDependencies().iterator().next());
+        assertNull("The target has no dependencies toward the source", targetApp.getDependencies());
 
         // Verify input filling using the service discovery mechanism
-        assertEquals("marathon-lb.marathon.mesos", sourceApp.getEnv().get("INPUT_IP"));
-        assertEquals("10000", sourceApp.getArgs().get(0));
-        assertEquals("OPT", sourceApp.getContainer().getDocker().getParameters().get(0).getKey());
+        assertEquals("The plugin replaces an ip_address property mapping with marathonLb dns name","marathon-lb.marathon.mesos", sourceApp.getEnv().get("INPUT_IP"));
+        assertEquals("The plugin replaces a port property mapping with the correct service port","10000", sourceApp.getArgs().get(0));
+        assertEquals("Input prefixed by OPT_ is converted into a docker param", "OPT", sourceApp.getContainer().getDocker().getParameters().get(0).getKey());
         assertEquals("abcd", sourceApp.getContainer().getDocker().getParameters().get(0).getValue());
 
         verify(mockMappingService).registerAppMapping("test-marathon-deployment", "source-template", "Source-Template");
@@ -280,15 +281,15 @@ public class BuilderServiceTest {
 
         PaaSTopologyDeploymentContext context = preparePaaSContext(Lists.newArrayList(paaSNodeTemplate, paaSNodeTemplate), null);
         final App appDef = builderService.buildGroupDefinition(context).getApps().iterator().next();
-        assertEquals("arg1", appDef.getArgs().get(0));
+        assertEquals("cmd args defined as node properties","arg1", appDef.getArgs().get(0));
         assertEquals("arg2", appDef.getArgs().get(1));
-        assertEquals("node server run", appDef.getCmd());
+        assertEquals("docker run command", "node server run", appDef.getCmd());
         final Docker docker = appDef.getContainer().getDocker();
-        assertEquals("opt_name1", docker.getParameters().get(0).getKey());
+        assertEquals("docker paramaters defined as option properties","opt_name1", docker.getParameters().get(0).getKey());
         assertEquals("opt_val1", docker.getParameters().get(0).getValue());
         assertEquals("opt_name2", docker.getParameters().get(1).getKey());
         assertEquals("opt_val2", docker.getParameters().get(1).getValue());
-        assertEquals("env_val1", appDef.getEnv().get("env_name_1"));
+        assertEquals("env variables defined as user properties","env_val1", appDef.getEnv().get("env_name_1"));
         assertEquals("env_val2", appDef.getEnv().get("env_name_2"));
     }
 

@@ -145,7 +145,7 @@ public class BuilderService {
          * This means that this node CAN be targeted by a ConnectsTo relationship.
          * Register the app into the internal service discovery group.
          */
-        buildPortDefinition(nodeTemplate.getCapabilities(), paaSNodeTemplate.getId(), appBuilder);
+        buildPortDefinition(nodeTemplate.getCapabilities(), paaSNodeTemplate.getId().toLowerCase(), appBuilder);
 
         /*
          * INPUTS from the Create operation
@@ -272,10 +272,10 @@ public class BuilderService {
                         .orElseThrow(() -> new InvalidArgumentException("A container path must be provided to mount a volume to a container.")))
                     .name(Optional.ofNullable(((ScalarPropertyValue) volumeTemplateProperties.get("volume_name")))
                             .map(ScalarPropertyValue::getValue).orElse(null)) // TODO: Should persist and manage volume names
-                    .size(Optional.ofNullable(((ScalarPropertyValue) volumeTemplateProperties.get("size")))
-                            .map(ScalarPropertyValue::getValue)
-                            .filter(s -> s.matches("^[1-9][0-9]*\\s(GiB|GB)$"))
-                            .map(s -> s.split("\\s")[0]).map(Integer::valueOf).orElse(1)) // Note: won't work for docker containers ATM)
+//                    .size(Optional.ofNullable(((ScalarPropertyValue) volumeTemplateProperties.get("size")))
+//                            .map(ScalarPropertyValue::getValue)
+//                            .filter(s -> s.matches("^[1-9][0-9]*\\s(GiB|GB)$"))
+//                            .map(s -> s.split("\\s")[0]).map(Integer::valueOf).orElse(null)) // FIXME: won't work for docker containers ATM)
                     .build()
             ).instances(1); // External volumes make the app not scalable
         });
