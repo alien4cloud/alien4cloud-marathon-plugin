@@ -4,7 +4,6 @@ import java.util.Collection;
 import java.util.Map;
 import java.util.Optional;
 
-import lombok.Getter;
 import org.springframework.stereotype.Service;
 
 import com.google.common.collect.Maps;
@@ -13,14 +12,13 @@ import alien4cloud.paas.model.DeploymentStatus;
 import alien4cloud.paas.model.PaaSTopologyDeploymentContext;
 import alien4cloud.plugin.marathon.service.model.mapping.AlienDeploymentMapping;
 import alien4cloud.plugin.marathon.service.model.mapping.MarathonAppsMapping;
-import lombok.extern.log4j.Log4j;
-
+import lombok.extern.slf4j.Slf4j;
 /**
  * Service to help maintain a mapping between ids in Marathon and ids in Alien.
  * Optional-based api to allow custom behavior when null.
  */
 @Service
-@Log4j
+@Slf4j
 public class MappingService {
 
     /**

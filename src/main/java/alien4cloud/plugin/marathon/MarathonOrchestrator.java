@@ -3,10 +3,13 @@ package alien4cloud.plugin.marathon;
 import static com.google.common.collect.Maps.newHashMap;
 import static java.util.Collections.emptyMap;
 
-import java.util.*;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.Date;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 
-import lombok.NonNull;
-import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Scope;
 import org.springframework.stereotype.Component;
@@ -22,17 +25,31 @@ import alien4cloud.paas.IPaaSCallback;
 import alien4cloud.paas.exception.MaintenanceModeException;
 import alien4cloud.paas.exception.OperationExecutionException;
 import alien4cloud.paas.exception.PluginConfigurationException;
-import alien4cloud.paas.model.*;
+import alien4cloud.paas.model.AbstractMonitorEvent;
+import alien4cloud.paas.model.DeploymentStatus;
+import alien4cloud.paas.model.InstanceInformation;
+import alien4cloud.paas.model.InstanceStatus;
+import alien4cloud.paas.model.NodeOperationExecRequest;
+import alien4cloud.paas.model.PaaSDeploymentContext;
+import alien4cloud.paas.model.PaaSTopologyDeploymentContext;
 import alien4cloud.plugin.marathon.config.MarathonConfig;
 import alien4cloud.plugin.marathon.location.MarathonLocationConfiguratorFactory;
-import alien4cloud.plugin.marathon.service.EventService;
 import alien4cloud.plugin.marathon.service.BuilderService;
+import alien4cloud.plugin.marathon.service.EventService;
 import alien4cloud.plugin.marathon.service.MappingService;
 import alien4cloud.utils.MapUtil;
+import lombok.NonNull;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import mesosphere.marathon.client.Marathon;
 import mesosphere.marathon.client.MarathonClient;
-import mesosphere.marathon.client.model.v2.*;
+import mesosphere.marathon.client.model.v2.App;
+import mesosphere.marathon.client.model.v2.Deployment;
+import mesosphere.marathon.client.model.v2.GetAppResponse;
+import mesosphere.marathon.client.model.v2.Group;
+import mesosphere.marathon.client.model.v2.HealthCheckResult;
+import mesosphere.marathon.client.model.v2.Result;
+import mesosphere.marathon.client.model.v2.Task;
 import mesosphere.marathon.client.utils.MarathonException;
 
 /**
@@ -80,6 +97,11 @@ public class MarathonOrchestrator implements IOrchestratorPlugin<MarathonConfig>
             log.error("Failure while deploying - Got error code ["+e.getStatus()+"] with message: " + e.getMessage());
         }
         // No callback
+    }
+
+    @Override
+    public void update(PaaSTopologyDeploymentContext deploymentContext, IPaaSCallback<?> callback) {
+        return;
     }
 
     @Override

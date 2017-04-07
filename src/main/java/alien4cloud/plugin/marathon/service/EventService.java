@@ -22,7 +22,7 @@ import alien4cloud.plugin.marathon.service.model.events.deployments.DeploymentSu
 import alien4cloud.plugin.marathon.service.model.events.status.HealthStatusChangedEvent;
 import alien4cloud.plugin.marathon.service.model.events.status.StatusUpdateEvent;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.log4j.Log4j;
+import lombok.extern.slf4j.Slf4j;
 import mesosphere.marathon.client.utils.ModelUtils;
 
 /**
@@ -31,7 +31,7 @@ import mesosphere.marathon.client.utils.ModelUtils;
  * @author Adrian Fraisse
  */
 @Service
-@Log4j
+@Slf4j
 @RequiredArgsConstructor(onConstructor=@__(@Autowired))
 public class EventService {
 

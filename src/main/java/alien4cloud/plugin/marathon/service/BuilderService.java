@@ -30,7 +30,7 @@ import alien4cloud.plugin.marathon.service.builders.ExternalVolumeBuilder;
 import alien4cloud.plugin.marathon.service.builders.PortBuilder;
 import lombok.NonNull;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.log4j.Log4j;
+import lombok.extern.slf4j.Slf4j;
 import mesosphere.marathon.client.model.v2.App;
 import mesosphere.marathon.client.model.v2.Group;
 
@@ -42,7 +42,7 @@ import mesosphere.marathon.client.model.v2.Group;
  */
 @Service
 @RequiredArgsConstructor(onConstructor=@__(@Autowired))
-@Log4j
+@Slf4j
 public class BuilderService {
 
     private final @NonNull MappingService mappingService;

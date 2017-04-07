@@ -1,24 +1,26 @@
 package alien4cloud.plugin.marathon.service.builders;
 
+import org.springframework.util.StringUtils;
+
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
 import lombok.Getter;
-import lombok.extern.log4j.Log4j;
+import lombok.extern.slf4j.Slf4j;
 import mesosphere.marathon.client.model.v2.*;
-import org.springframework.util.StringUtils;
 
 /**
  * @author Adrian Fraisse
  */
-@Log4j
+@Slf4j
 public class AppBuilder {
     private App app;
 
     // Keeping IDs is useful when building dependencies
     @Getter
     private String parentGroupID;
-    @Getter String appID;
+    @Getter
+    String appID;
 
     private AppBuilder(String id) {
         // Initialize the app as a docker container
