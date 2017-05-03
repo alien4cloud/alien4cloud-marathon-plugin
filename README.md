@@ -12,7 +12,7 @@ This readme assumes that you are already familiar with Alien4Cloud. If you aren'
 
 The first thing you'll want to do is setting up a Marathon+Mesos cluster on the Cloud provider of your choosing. Luckily, Alien4Cloud can do all the heavy-lifting for you.
 - First, upload the following CSARs into Alien:
- - [docker-engine](https://github.com/alien4cloud/samples/tree/master/docker-engine)
+ - [docker-engine](https://github.com/alien4cloud/samples/tree/master/docker-engine-type)
  - [mesos-types](https://github.com/alien4cloud/mesos-tosca-blueprints)
  - [docker-types](https://github.com/alien4cloud/docker-tosca-types/tree/master/docker-types)
 - Then, create your own custom Mesos TOSCA composition or use a convenient template [we made for you](https://github.com/alien4cloud/mesos-tosca-blueprints/blob/master/topology-marathon-rexray/marathon-rexray-template.yml).
