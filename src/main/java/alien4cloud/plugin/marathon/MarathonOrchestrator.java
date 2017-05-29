@@ -59,7 +59,7 @@ import mesosphere.marathon.client.utils.MarathonException;
  */
 @Slf4j
 @Component
-@RequiredArgsConstructor(onConstructor=@__(@Autowired))
+@RequiredArgsConstructor(onConstructor = @__(@Autowired))
 @Scope("prototype")
 public class MarathonOrchestrator implements IOrchestratorPlugin<MarathonConfig> {
 
@@ -74,7 +74,7 @@ public class MarathonOrchestrator implements IOrchestratorPlugin<MarathonConfig>
     private Marathon marathonClient;
 
     @Override
-    public void setConfiguration(MarathonConfig marathonConfig) throws PluginConfigurationException {
+    public void setConfiguration(String orchestratorId, MarathonConfig marathonConfig) throws PluginConfigurationException {
         // Set up the connexion to Marathon
         marathonClient = MarathonClient.getInstance(marathonConfig.getMarathonURL());
         eventService.subscribe(marathonConfig.getMarathonURL().concat("/v2"));
@@ -92,9 +92,10 @@ public class MarathonOrchestrator implements IOrchestratorPlugin<MarathonConfig>
         try {
             Result result = marathonClient.createGroup(group);
             // Store the deployment ID to handle event mapping
-            mappingService.registerDeploymentInfo(result.getDeploymentId(), paaSTopologyDeploymentContext.getDeploymentId(), DeploymentStatus.DEPLOYMENT_IN_PROGRESS);
+            mappingService.registerDeploymentInfo(result.getDeploymentId(), paaSTopologyDeploymentContext.getDeploymentId(),
+                    DeploymentStatus.DEPLOYMENT_IN_PROGRESS);
         } catch (MarathonException e) {
-            log.error("Failure while deploying - Got error code ["+e.getStatus()+"] with message: " + e.getMessage());
+            log.error("Failure while deploying - Got error code [" + e.getStatus() + "] with message: " + e.getMessage());
         }
         // No callback
     }
@@ -111,7 +112,7 @@ public class MarathonOrchestrator implements IOrchestratorPlugin<MarathonConfig>
             Result result = marathonClient.deleteGroup(paaSDeploymentContext.getDeploymentPaaSId().toLowerCase());
             mappingService.registerDeploymentInfo(result.getDeploymentId(), paaSDeploymentContext.getDeploymentId(), DeploymentStatus.UNDEPLOYMENT_IN_PROGRESS);
         } catch (MarathonException e) {
-            log.error("Failure while undeploying - Got error code ["+e.getStatus()+"] with message: " + e.getMessage());
+            log.error("Failure while undeploying - Got error code [" + e.getStatus() + "] with message: " + e.getMessage());
             iPaaSCallback.onFailure(e);
         }
         iPaaSCallback.onSuccess(null);
@@ -127,12 +128,12 @@ public class MarathonOrchestrator implements IOrchestratorPlugin<MarathonConfig>
             iPaaSCallback.onSuccess(status);
         } catch (MarathonException e) {
             switch (e.getStatus()) {
-                case 404 : // If 404 then the group was not found on Marathon
-                    iPaaSCallback.onSuccess(DeploymentStatus.UNDEPLOYED);
-                    break;
-                default: // Other codes are errors
-                    log.error("Unable to reach Marathon - Got error code ["+e.getStatus()+"] with message: " + e.getMessage());
-                    iPaaSCallback.onFailure(e);
+            case 404: // If 404 then the group was not found on Marathon
+                iPaaSCallback.onSuccess(DeploymentStatus.UNDEPLOYED);
+                break;
+            default: // Other codes are errors
+                log.error("Unable to reach Marathon - Got error code [" + e.getStatus() + "] with message: " + e.getMessage());
+                iPaaSCallback.onFailure(e);
             }
         } catch (RuntimeException e) {
             iPaaSCallback.onFailure(e.getCause());
@@ -141,6 +142,7 @@ public class MarathonOrchestrator implements IOrchestratorPlugin<MarathonConfig>
 
     /**
      * Retrieves the status of a Topology which has already been deployed on Marathon.
+     * 
      * @param group The topology's Marathon group
      * @return A <code>DeploymentStatus</code> representing the state of the topology in Marathon
      * @throws RuntimeException Any exception while reaching Marathon.
@@ -149,32 +151,40 @@ public class MarathonOrchestrator implements IOrchestratorPlugin<MarathonConfig>
         try {
             return marathonClient.getDeployments().stream() // Retrieve deployments
                     .filter(deployment ->
-                            // If any deployment affects an app from the group, then it means the group is undertaking deployment
-                            deployment.getAffectedApps().stream().anyMatch(s -> s.matches("^//" + group.getId() + "//"))
-                    ).findFirst()
-                    .map(this::getRunningDeploymentStatus) // A deployment matches - check if it is deploying or undeploying
-                    .orElseGet(() -> getDeployedTopologyStatus(group));// No deployment but the group exists in Marathon => the topology is deployed, check states
+                    // If any deployment affects an app from the group, then it means the group is undertaking deployment
+                    deployment.getAffectedApps().stream().anyMatch(s -> s.matches("^//" + group.getId() + "//"))).findFirst().map(this::getRunningDeploymentStatus) // A
+                                                                                                                                                                    // deployment
+                                                                                                                                                                    // matches
+                                                                                                                                                                    // -
+                                                                                                                                                                    // check
+                                                                                                                                                                    // if
+                                                                                                                                                                    // it
+                                                                                                                                                                    // is
+                                                                                                                                                                    // deploying
+                                                                                                                                                                    // or
+                                                                                                                                                                    // undeploying
+                    .orElseGet(() -> getDeployedTopologyStatus(group));// No deployment but the group exists in Marathon => the topology is deployed, check
+                                                                       // states
         } catch (MarathonException e) {
-            log.error("Failure reaching for deployments - Got error code ["+e.getStatus()+"] with message: " + e.getMessage());
+            log.error("Failure reaching for deployments - Got error code [" + e.getStatus() + "] with message: " + e.getMessage());
             throw new RuntimeException(e);
         }
     }
 
     /**
      * Given a running Deployment, returns if it is actually deploying or un-deploying a topology.
+     * 
      * @param deployment A running deployment on Marathon.
      * @return <code>DeploymentStatus.DEPLOYMENT_IN_PROGRESS</code> or <code>DeploymentStatus.UNDEPLOYMENT_IN_PROGRESS</code>.
      */
     private DeploymentStatus getRunningDeploymentStatus(Deployment deployment) {
-        return deployment.getCurrentActions()
-                .stream()
-                .noneMatch(action -> // All actions but StopApplication reflect a deployment in progress
-                        action.getType().matches("^StopApplication$")
-                ) ? DeploymentStatus.DEPLOYMENT_IN_PROGRESS : DeploymentStatus.UNDEPLOYMENT_IN_PROGRESS;
+        return deployment.getCurrentActions().stream().noneMatch(action -> // All actions but StopApplication reflect a deployment in progress
+        action.getType().matches("^StopApplication$")) ? DeploymentStatus.DEPLOYMENT_IN_PROGRESS : DeploymentStatus.UNDEPLOYMENT_IN_PROGRESS;
     }
 
     /**
      * Given a deployed topology, get its status.
+     * 
      * @param group The Marathon application group.
      * @return <code>DeploymentStatus.DEPLOYED</code> if all apps are healthy or <code>DeploymentStatus.FAILURE</code> if not.
      */
@@ -185,11 +195,11 @@ public class MarathonOrchestrator implements IOrchestratorPlugin<MarathonConfig>
             try {
                 appInfo.add(marathonClient.getApp(app.getId()).getApp());
             } catch (MarathonException e) {
-                log.error("Failure reaching for apps - Got error code ["+e.getStatus()+"] with message: " + e.getMessage());
+                log.error("Failure reaching for apps - Got error code [" + e.getStatus() + "] with message: " + e.getMessage());
                 switch (e.getStatus()) {
                 case 404:
                     break;
-                    // Continue checking for apps
+                // Continue checking for apps
                 default:
                     throw new RuntimeException(e);
                 }
@@ -204,7 +214,8 @@ public class MarathonOrchestrator implements IOrchestratorPlugin<MarathonConfig>
     }
 
     @Override
-    public void getInstancesInformation(PaaSTopologyDeploymentContext paaSTopologyDeploymentContext, IPaaSCallback<Map<String, Map<String, InstanceInformation>>> iPaaSCallback) {
+    public void getInstancesInformation(PaaSTopologyDeploymentContext paaSTopologyDeploymentContext,
+            IPaaSCallback<Map<String, Map<String, InstanceInformation>>> iPaaSCallback) {
         final Map<String, Map<String, InstanceInformation>> topologyInfo = newHashMap();
 
         final String groupID = paaSTopologyDeploymentContext.getDeploymentPaaSId().toLowerCase();
@@ -224,33 +235,36 @@ public class MarathonOrchestrator implements IOrchestratorPlugin<MarathonConfig>
                 topologyInfo.put(paaSNodeTemplate.getId(), instancesInfo);
             } catch (MarathonException e) {
                 switch (e.getStatus()) {
-                    case 404: // The app cannot be found in marathon - we display no information
-                        break;
-                    default:
-                        iPaaSCallback.onFailure(e);
+                case 404: // The app cannot be found in marathon - we display no information
+                    break;
+                default:
+                    iPaaSCallback.onFailure(e);
                 }
             }
         });
-        paaSTopologyDeploymentContext.getPaaSTopology().getVolumes().forEach(volumeTemplate-> {
+        paaSTopologyDeploymentContext.getPaaSTopology().getVolumes().forEach(volumeTemplate -> {
             // Volumes have the same state than their app
-            final InstanceInformation volumeInstanceInfo =
-                volumeTemplate.getRelationshipTemplates().stream()
+            final InstanceInformation volumeInstanceInfo = volumeTemplate.getRelationshipTemplates().stream()
                     .filter(paaSRelationshipTemplate -> "alien.relationships.MountDockerVolume".equals(paaSRelationshipTemplate.getTemplate().getType()))
                     .findFirst() // Retrieve the node this volume is attached to
-                    .map(paaSRelationshipTemplate -> paaSRelationshipTemplate.getTemplate().getTarget())
-                    .map(topologyInfo::get)  // Retrieve the InstanceInformation map of the node the volume is attached to
+                    .map(paaSRelationshipTemplate -> paaSRelationshipTemplate.getTemplate().getTarget()).map(topologyInfo::get) // Retrieve the
+                                                                                                                                // InstanceInformation map of
+                                                                                                                                // the node the volume is
+                                                                                                                                // attached to
                     .flatMap(instancesInfoMap -> // Use any instance of the node as base for the volume's InstanceInformation
-                            instancesInfoMap.entrySet().stream().findAny().map(instanceInfoEntry ->
-                                    new InstanceInformation(instanceInfoEntry.getValue().getState(), instanceInfoEntry.getValue().getInstanceStatus(), emptyMap(), emptyMap(), emptyMap())
-                            )
-                    ).orElse(new InstanceInformation("uninitialized", InstanceStatus.PROCESSING, emptyMap(), emptyMap(), emptyMap()));
-            topologyInfo.put(volumeTemplate.getId(), MapUtil.newHashMap(new String[] {volumeTemplate.getId()}, new InstanceInformation[] {volumeInstanceInfo}));
+            instancesInfoMap.entrySet().stream().findAny()
+                    .map(instanceInfoEntry -> new InstanceInformation(instanceInfoEntry.getValue().getState(), instanceInfoEntry.getValue().getInstanceStatus(),
+                            emptyMap(), emptyMap(), emptyMap())))
+                    .orElse(new InstanceInformation("uninitialized", InstanceStatus.PROCESSING, emptyMap(), emptyMap(), emptyMap()));
+            topologyInfo.put(volumeTemplate.getId(),
+                    MapUtil.newHashMap(new String[] { volumeTemplate.getId() }, new InstanceInformation[] { volumeInstanceInfo }));
         });
         iPaaSCallback.onSuccess(topologyInfo);
     }
 
     /**
      * Get instance information, eg. status and runtime properties, from a Marathon Task.
+     * 
      * @param task A Marathon Task
      * @return An InstanceInformation
      */
@@ -259,43 +273,36 @@ public class MarathonOrchestrator implements IOrchestratorPlugin<MarathonConfig>
 
         // Outputs Marathon endpoints as host:port1,port2, ...
         final Collection<String> ports = Collections2.transform(task.getPorts(), Functions.toStringFunction());
-        runtimeProps.put("endpoint",
-                "http://".concat(task.getHost().concat(":").concat(String.join(",", ports))));
+        runtimeProps.put("endpoint", "http://".concat(task.getHost().concat(":").concat(String.join(",", ports))));
 
         InstanceStatus instanceStatus;
         String state;
 
         // Leverage Mesos's TASK_STATUS - TODO: add Mesos 1.0 task states
         switch (task.getState()) {
-            case "TASK_RUNNING":
-                state = "started";
-                // Retrieve health checks results - if no healthcheck then assume healthy
-                instanceStatus =
-                    Optional.ofNullable(task.getHealthCheckResults())
-                        .map(healthCheckResults ->
-                            healthCheckResults
-                                .stream()
-                                .findFirst()
-                                .map(HealthCheckResult::isAlive)
-                                .map(alive -> alive ? InstanceStatus.SUCCESS : InstanceStatus.FAILURE)
-                            .orElse(InstanceStatus.PROCESSING)
-                        ).orElse(InstanceStatus.SUCCESS);
-                break;
-            case "TASK_STARTING":
-                state = "starting";
-                instanceStatus = InstanceStatus.PROCESSING;
-                break;
-            case "TASK_STAGING":
-                state = "creating";
-                instanceStatus = InstanceStatus.PROCESSING;
-                break;
-            case "TASK_ERROR":
-                state = "stopped";
-                instanceStatus = InstanceStatus.FAILURE;
-                break;
-            default:
-                state = "uninitialized"; // Unknown
-                instanceStatus = InstanceStatus.PROCESSING;
+        case "TASK_RUNNING":
+            state = "started";
+            // Retrieve health checks results - if no healthcheck then assume healthy
+            instanceStatus = Optional.ofNullable(task.getHealthCheckResults())
+                    .map(healthCheckResults -> healthCheckResults.stream().findFirst().map(HealthCheckResult::isAlive)
+                            .map(alive -> alive ? InstanceStatus.SUCCESS : InstanceStatus.FAILURE).orElse(InstanceStatus.PROCESSING))
+                    .orElse(InstanceStatus.SUCCESS);
+            break;
+        case "TASK_STARTING":
+            state = "starting";
+            instanceStatus = InstanceStatus.PROCESSING;
+            break;
+        case "TASK_STAGING":
+            state = "creating";
+            instanceStatus = InstanceStatus.PROCESSING;
+            break;
+        case "TASK_ERROR":
+            state = "stopped";
+            instanceStatus = InstanceStatus.FAILURE;
+            break;
+        default:
+            state = "uninitialized"; // Unknown
+            instanceStatus = InstanceStatus.PROCESSING;
         }
 
         return new InstanceInformation(state, instanceStatus, runtimeProps, runtimeProps, newHashMap());
@@ -307,7 +314,9 @@ public class MarathonOrchestrator implements IOrchestratorPlugin<MarathonConfig>
     }
 
     @Override
-    public void executeOperation(PaaSTopologyDeploymentContext paaSTopologyDeploymentContext, NodeOperationExecRequest nodeOperationExecRequest, IPaaSCallback<Map<String, String>> iPaaSCallback) throws OperationExecutionException {}
+    public void executeOperation(PaaSTopologyDeploymentContext paaSTopologyDeploymentContext, NodeOperationExecRequest nodeOperationExecRequest,
+            IPaaSCallback<Map<String, String>> iPaaSCallback) throws OperationExecutionException {
+    }
 
     @Override
     public ILocationConfiguratorPlugin getConfigurator(String locationType) {
@@ -342,7 +351,7 @@ public class MarathonOrchestrator implements IOrchestratorPlugin<MarathonConfig>
                     marathonClient.updateApp(appId, app, true);
                     iPaaSCallback.onSuccess(null);
                 } catch (MarathonException e) {
-                    log.error("Failure while scaling - Got error code ["+e.getStatus()+"] with message: " + e.getMessage());
+                    log.error("Failure while scaling - Got error code [" + e.getStatus() + "] with message: " + e.getMessage());
                     iPaaSCallback.onFailure(e);
                 }
             });
@@ -353,5 +362,7 @@ public class MarathonOrchestrator implements IOrchestratorPlugin<MarathonConfig>
     }
 
     @Override
-    public void launchWorkflow(PaaSDeploymentContext paaSDeploymentContext, String s, Map<String, Object> map, IPaaSCallback<?> iPaaSCallback) {}
+    public void launchWorkflow(PaaSDeploymentContext paaSDeploymentContext, String s, Map<String, Object> map, IPaaSCallback<?> iPaaSCallback) {
+    }
+
 }
