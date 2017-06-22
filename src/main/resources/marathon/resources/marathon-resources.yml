@@ -1,13 +1,14 @@
-tosca_definitions_version: alien_dsl_1_1_0
+tosca_definitions_version: alien_dsl_1_4_0
 
-template_name: marathon-plugin-types
-template_author: Alien 4 Cloud
-template_version: 1.0.0-SNAPSHOT
+metadata:
+  template_name: marathon-plugin-types
+  template_author: Alien 4 Cloud
+  template_version: 1.0.0-SNAPSHOT
 
 description: "Defines resources for marathon"
 
 imports:
-  - tosca-normative-types:1.0.0-ALIEN12
+  - tosca-normative-types:1.0.0-ALIEN14
 
 node_types:
   alien.nodes.marathon.Container:
