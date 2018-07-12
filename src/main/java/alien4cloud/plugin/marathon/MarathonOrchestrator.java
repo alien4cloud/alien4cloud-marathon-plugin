@@ -81,9 +81,10 @@ public class MarathonOrchestrator implements IOrchestratorPlugin<MarathonConfig>
     }
 
     @Override
-    public void init(Map<String, PaaSTopologyDeploymentContext> activeDeployments) {
+    public void init(Map<String, String> activeDeployments) {
         // Init mapping
-        mappingService.init(activeDeployments.values());
+        // FIXME : now we just have IDs, we need more for this plugin
+        // mappingService.init(activeDeployments.values());
     }
 
     @Override
